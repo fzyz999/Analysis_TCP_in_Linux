@@ -1,0 +1,462 @@
+%----------------------------------------------------------------------------------------
+%	PACKAGES AND OTHER DOCUMENT CONFIGURATIONS
+%----------------------------------------------------------------------------------------
+\documentclass[11pt, a4paper,oneside]{book}
+
+\usepackage{graphicx} % Required for including pictures
+
+%----------------------------------------------------------------------------------------
+%       Localization
+%----------------------------------------------------------------------------------------
+\usepackage[UTF8,adobefonts]{ctex}
+\usepackage[TS1,T1]{fontenc}
+\usepackage{array, booktabs}
+\usepackage{graphicx}
+\usepackage[x11names]{xcolor}
+\usepackage{colortbl}
+\usepackage{fontspec}
+\newcommand{\foo}{\color{baseD}\makebox[0pt]{\textbullet}\hskip-0.5pt\vrule width 1pt\hspace{\labelsep}}
+
+%\setmainfont[Boldont=WenQuanYi Micro Hei]{AR PL SungtiL GB}
+%\setsansfont[BoldFont=WenQuanYi Micro Hei]{AR PL KaitiM GB}
+%\setmonofont{DejaVu Sans Mono}
+
+%\XeTeXlinebreaklocale "zh"
+%\XeTeXlinebreakskip = 0pt plus 1pt minus 0.1pt
+
+\usepackage[top=1in,bottom=1in,left=1.25in,right=1.25in]{geometry}
+%\linespread{1.2}
+
+\usepackage[Glenn]{fncychap}
+
+\usepackage{fancyhdr}
+
+%----------------------------------------------------------------------------------------
+%       Useful Packages
+%----------------------------------------------------------------------------------------
+\usepackage{color}
+\usepackage{url}
+\usepackage[colorlinks, linkcolor=black,anchorcolor=black, citecolor=black]{hyperref}
+
+\usepackage{xcolor} % Required for specifying colors by name
+\definecolor{ocre}{RGB}{243,102,25} % Define the orange color used for highlighting throughout the book
+
+% BASE16
+\definecolor{base0}{HTML}{181818}
+\definecolor{base1}{HTML}{282828}
+\definecolor{base2}{HTML}{383838}
+\definecolor{base3}{HTML}{585858}
+\definecolor{base4}{HTML}{B8B8B8}
+\definecolor{base5}{HTML}{D8D8D8}
+\definecolor{base6}{HTML}{E8E8E8}
+\definecolor{base7}{HTML}{F8F8F8}
+\definecolor{base8}{HTML}{AB4642}
+\definecolor{base9}{HTML}{DC9656}
+\definecolor{baseA}{HTML}{F7CA88}
+\definecolor{baseB}{HTML}{A1B56C}
+\definecolor{baseC}{HTML}{86C1B9}
+\definecolor{baseD}{HTML}{7CAFC2}
+\definecolor{baseE}{HTML}{BA8BAF}
+\definecolor{baseF}{HTML}{A16946}
+\definecolor{Gray}{HTML}{CCCCCC}
+\definecolor{linkcolor}{HTML}{EC008C}
+\definecolor{codecolorpink}{HTML}{CC00FF}
+\definecolor{NoteColorFont}{HTML}{6D727D}
+\definecolor{NoteColorLine}{HTML}{C3CAD9}
+\definecolor{ExeColorFont}{HTML}{FF9900}
+\definecolor{ExeColorLine}{HTML}{FFF678}
+\definecolor{ExeColorBack}{HTML}{FFFFCC}
+\definecolor{ThinkColorFont}{HTML}{629D81}
+\definecolor{ThinkColorLine}{HTML}{93E87D}
+\definecolor{ThinkColorBack}{HTML}{C1FA9B}
+
+\usepackage{amsmath,amsfonts,amssymb,amsthm} % For math equations, theorems, symbols, etc
+\usepackage{booktabs} % For tables
+\usepackage{tabularx}
+\usepackage{multirow} % for multiple row tables.
+
+%----------------------------------------------------------------------------------------
+%       Some Extra Definitions
+%----------------------------------------------------------------------------------------
+
+\RequirePackage[framemethod=default]{mdframed} % Required for creating the theorem, definition, exercise and corollary boxes
+
+% Exercise box
+\newmdenv[skipabove=10pt,
+skipbelow=10pt,
+rightline=false,
+leftline=true,
+topline=false,
+bottomline=false,
+backgroundcolor=ExeColorBack,
+linecolor=ExeColorLine,
+innerleftmargin=5pt,
+innerrightmargin=5pt,
+innertopmargin=5pt,
+innerbottommargin=5pt,
+leftmargin=0cm,
+rightmargin=0cm,
+linewidth=12pt]{eBox}
+
+% Thinking box
+\newmdenv[skipabove=10pt,
+skipbelow=10pt,
+rightline=false,
+leftline=true,
+topline=false,
+bottomline=false,
+backgroundcolor=ThinkColorBack!30,
+linecolor=ThinkColorLine,
+innerleftmargin=5pt,
+innerrightmargin=5pt,
+innertopmargin=5pt,
+innerbottommargin=5pt,
+leftmargin=0cm,
+rightmargin=0cm,
+linewidth=12pt]{tBox}
+
+% Note box
+\newmdenv[skipabove=10pt,
+skipbelow=10pt,
+rightline=false,
+leftline=true,
+topline=false,
+bottomline=false,
+backgroundcolor=NoteColorLine!15,
+linecolor=NoteColorLine,
+innerleftmargin=5pt,
+innerrightmargin=5pt,
+innertopmargin=5pt,
+innerbottommargin=5pt,
+leftmargin=0cm,
+rightmargin=0cm,
+linewidth=12pt]{nBox}
+
+% Boxed/framed environments
+\newtheoremstyle{ocrenumbox}% % Theorem style name
+{0pt}% Space above
+{0pt}% Space below
+{\normalfont}% % Body font
+{}% Indent amount
+{\small\bf\sffamily\color{ExeColorFont}}% % Theorem head font
+{\;}% Punctuation after theorem head
+{0.25em}% Space after theorem head	
+{\small\sffamily\color{ExeColorFont}\thmname{#1}\nobreakspace\thmnumber{#2}% Theorem text (e.g. Exercise 2.1)
+\thmnote{\nobreakspace\the\thm@notefont\sffamily\bfseries\color{black}---\nobreakspace#3.}} % Optional theorem note
+\renewcommand{\qedsymbol}{$\blacksquare$}% Optional qed square
+
+\newtheoremstyle{purplenumbox}% % Theorem style name
+{0pt}% Space above
+{0pt}% Space below
+{\normalfont}% % Body font
+{}% Indent amount
+{\small\bf\sffamily\color{ThinkColorFont}}% % Theorem head font
+{\;}% Punctuation after theorem head
+{0.25em}% Space after theorem head	
+{\small\sffamily\color{ThinkColorFont}\thmname{#1}\nobreakspace\thmnumber{#2}
+% Theorem text (e.g. Thinking 2.1)
+\thmnote{\nobreakspace\the\thm@notefont\sffamily\bfseries\color{black}---\nobreakspace#3.}} % Optional theorem note
+\renewcommand{\qedsymbol}{$\blacksquare$}% Optional qed square
+
+\newtheoremstyle{blackbox} % Theorem style name
+{0pt}% Space above
+{0pt}% Space below
+{\normalfont}% Body font
+{}% Indent amount
+{\small\bf\sffamily}% Theorem head font
+{\;}% Punctuation after theorem head
+{0.25em}% Space after theorem head
+{\small\sffamily\color{NoteColorFont}\thmname{#1}\nobreakspace\thmnumber{#2}
+% Theorem text (e.g. Theorem 2.1)
+\thmnote{\nobreakspace\the\thm@notefont\sffamily\bfseries---\nobreakspace#3.}}% Optional theorem note
+
+% Defines the theorem text style for each type of theorem to one of the three styles above
+\theoremstyle{ocrenumbox}
+\newtheorem{exerciseT}{Exercise}[chapter]
+\theoremstyle{purplenumbox}
+\newtheorem{thinkingT}{Thinking}[chapter]
+\theoremstyle{blackbox}
+\newtheorem{noteT}{Note}[section]
+
+\newenvironment{exercise}{\begin{eBox}\begin{exerciseT}}{\hfill{\color{ExeColorFont}\tiny\ensuremath{\blacksquare}}\end{exerciseT}\end{eBox}}
+\newenvironment{thinking}{\begin{tBox}\begin{thinkingT}}{\hfill{\color{ThinkColorFont}\tiny\ensuremath{\blacksquare}}\end{thinkingT}\end{tBox}}
+\newenvironment{note}{\begin{nBox}\begin{noteT}}{\end{noteT}\end{nBox}}
+
+%----------------------------------------------------------------------------------------
+%       Code Environment
+%----------------------------------------------------------------------------------------
+\usepackage{minted}
+\usemintedstyle{manni}
+
+% code box
+\newmdenv[backgroundcolor=base7,
+linecolor=baseD,
+bottomline=false,
+leftline=true,
+rightline=false,
+topline=false,
+linewidth=2pt,
+leftmargin=13pt]{pcodeBox}
+
+\renewcommand{\theFancyVerbLine}{
+  \sffamily
+  \textcolor{baseB}{\arabic{FancyVerbLine}
+  }
+}
+
+\usepackage{caption}
+
+%\captionsetup{type=codeCaption}
+\newenvironment{codeBox}{\begin{pcodeBox}\fontsize{9pt}{9pt}}{\end{pcodeBox}}
+\newenvironment{codeBoxWithCaption}[1]{\begin{pcodeBox}[frametitle={\captionof{listing}{#1}\color{base6}\rule{\textwidth}{0.7pt}}]\fontsize{9pt}{9pt}}{\end{pcodeBox}}
+
+\BeforeBeginEnvironment{minted}{\begin{codeBox}}
+\AfterEndEnvironment{minted}{\end{codeBox}}
+
+%----------------------------------------------------------------------------------------
+%       Lists
+%----------------------------------------------------------------------------------------
+\usepackage{enumitem}
+\setlist[description]{labelindent=22pt} 
+
+%----------------------------------------------------------------------------------------
+%       Main Body
+%----------------------------------------------------------------------------------------
+\begin{document}
+
+\pagestyle{empty} % Removes page numbers
+\title{TCP高级实验}
+\author{王鹿鸣,刘保证}
+\date{\today}
+\maketitle
+\setcounter{secnumdepth}{3}
+\frontmatter
+\tableofcontents
+
+\mainmatter
+\pagestyle{fancy}
+
+\chapter{重要的数据结构}
+		icsk
+		sock\_common
+		sock
+		sk\_buff
+		
+\chapter{TCP建立连接过程}
+    \section{TCP主动打开-客户}
+    \section{TCP被动打开-服务器}
+        \subsection{基本流程}
+            tcp想要被动打开，就必须得先进行listen调用\textbf{(什么时候被调用呢？)}。经过listen调用之后，系统内部其实创建了一个监听套接字，专门负责监听是否有数据发来，而不会负责传输数据。
+
+            当客户端的第一个syn包到达服务器时，其实linux 内核并不会创建sock结构体，而是创建一个轻量级的request\_sock 结构体，里面能唯一确定某个客户端发来的syn的信息，接着就发送syn、ack给客户端。
+
+            客户端一般就接着回ack。这时，我们能从ack中，取出信息，在一堆request\_sock匹配，看看是否之前有这个ack对应的syn发过来过。如果之前发过syn，那么现在我们就能找到request\_sock，也就是客户端syn时建立的request\_sock。 此时，我们内核才会为这条流创建sock结构体，毕竟，sock结构体比request\_sock大的多，犯不着三次握手都没建立起来我就建立一个大的结构体。当三次握手建立以后，内核就建立一个相对完整的sock，所谓相对完整，其实也是不完整。因为如果你写过socket程序你就知道，所谓的真正完整，是建立socket，而不是sock （socket 结构体中有一个指针sock * sk，显然sock只是socket的一个子集）。那么我们什么时候才会创建完整的socket，或者换句话说，什么时候使得sock 结构体和文件系统关联从而绑定一个fd，用这个fd就可以用来传输数据呢？所谓fd(file descriptor)，一般是BSD Socket的用法，用在Unix/Linux 系统上。在Unix/Linux系统下，一个socket句柄，可以看做是一个文件，在socket上收发数据，相当于对一个文件进行读写，所以一个socket句柄，通常也用表示文件句柄的fd来表示。
+
+            如果你有socket编程经验，那么你一定能想到，那就是在accept系统调用时，返回了一个fd，所以说，是你在accept 时，你三次握手完成后建立的sock才绑定了一个 fd。
+        \subsection{第一次握手：接受SYN段}
+			\subsubsection{正常的首次握手函数调用概览}
+			            
+			\subsubsection{LISTEN状态处理接收到的TCP段}
+                在进行第一次握手的时候，TCP一般处于LISTEN状态。传输控制块接收处理的段都由tcp\_v4\_do\_rcv来处理。该函数位于/net/ipv4/tcp\_ipv4.c中。该函数会根据不同的TCP状态进行不同的处理，这里我们只是讨论第一次握手的函数处理过程。
+\begin{minted}[linenos]{C}
+/* The socket must have it's spinlock held when we get
+ * here, unless it is a TCP_LISTEN socket.
+ *
+ * We have a potential double-lock case here, so even when
+ * doing backlog processing we use the BH locking scheme.
+ * This is because we cannot sleep with the original spinlock
+ * held.
+ */
+int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
+{
+	struct sock *rsk;
+
+	/*省略无关代码*/
+
+	if (tcp_checksum_complete(skb))
+		goto csum_err;
+
+	if (sk->sk_state == TCP_LISTEN) {
+		struct sock *nsk = tcp_v4_cookie_check(sk, skb);
+
+		if (!nsk)
+			goto discard;
+		if (nsk != sk) {
+			sock_rps_save_rxhash(nsk, skb);
+			sk_mark_napi_id(nsk, skb);
+			if (tcp_child_process(sk, nsk, skb)) {
+				rsk = nsk;
+				goto reset;
+			}
+			return 0;
+		}
+	} else
+		sock_rps_save_rxhash(sk, skb);
+
+	if (tcp_rcv_state_process(sk, skb)) {
+		rsk = sk;
+		goto reset;
+	}
+	return 0;
+
+reset:
+	tcp_v4_send_reset(rsk, skb);
+discard:
+	kfree_skb(skb);
+	/* Be careful here. If this function gets more complicated and
+	 * gcc suffers from register pressure on the x86, sk (in \%ebx)
+	 * might be destroyed here. This current version compiles correctly,
+	 * but you have been warned.
+	 */
+	return 0;
+
+csum_err:
+	TCP_INC_STATS_BH(sock_net(sk), TCP_MIB_CSUMERRORS);
+	TCP_INC_STATS_BH(sock_net(sk), TCP_MIB_INERRS);
+	goto discard;
+}
+\end{minted}
+
+                \textbf{函数的参数的意思。表格显示（函数头，函数功能，函数参数及相关简单解释），代码行数放在前面。}
+                首先，程序先基于伪首部累加和进行全包的校验和，判断包是否传输正确。
+
+                其次，程序会进行相应的cookie检查。
+
+                最后，程序会继续调用tcp\_rcv\_state\_process函数处理接收到的SYN段。
+            
+	\subsubsection{LISTEN状态处理请求--tcp\_v4\_cookie\_check}
+                该函数如下：
+\begin{minted}[linenos]{C}
+static struct sock *tcp_v4_cookie_check(struct sock *sk, struct sk_buff *skb)
+{
+#ifdef CONFIG_SYN_COOKIES
+	const struct tcphdr *th = tcp_hdr(skb);
+
+	if (!th->syn)
+		sk = cookie_v4_check(sk, skb);
+#endif
+	return sk;
+}
+\end{minted}
+
+                可以看出如果系统定义了CONFIG\_SYN\_COOKIES宏的话，并且当前并不是syn包，内核就会继续进行cookie\_v4\_check，否则返回sk。显然对于第一次握手的时候，接收到的确实是syn包，故而不会进行检查。而是直接返回了sk。对于cookie\_v4\_check函数，当内存不足时，就返回NULL，否则就返回sk。
+            \subsubsection{LISTEN状态处理SYN段--tcp\_rcv\_state\_process}
+                该函数位于/net/ipv4/tcp\_input.c中。函数的简要介绍如下：
+
+                与第一次握手相关的代码如下：
+
+\begin{minted}[linenos]{C}
+/*
+ *	This function implements the receiving procedure of RFC 793 for
+ *	all states except ESTABLISHED and TIME_WAIT.
+ *	It's called from both tcp_v4_rcv and tcp_v6_rcv and should be
+ *	address independent.
+ */
+
+int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	struct inet_connection_sock *icsk = inet_csk(sk);
+	const struct tcphdr *th = tcp_hdr(skb);
+	struct request_sock *req;
+	int queued = 0;
+	bool acceptable;
+
+	tp->rx_opt.saw_tstamp = 0;
+
+	switch (sk->sk_state) {
+	/*省略无关代码*/
+
+	case TCP_LISTEN:
+		if (th->ack)
+			return 1;
+
+		if (th->rst)
+			goto discard;
+
+		if (th->syn) {
+			if (th->fin)
+				goto discard;
+			if (icsk->icsk_af_ops->conn_request(sk, skb) < 0)
+				return 1;
+
+			/* Now we have several options: In theory there is
+			 * nothing else in the frame. KA9Q has an option to
+			 * send data with the syn, BSD accepts data with the
+			 * syn up to the [to be] advertised window and
+			 * Solaris 2.1 gives you a protocol error. For now
+			 * we just ignore it, that fits the spec precisely
+			 * and avoids incompatibilities. It would be nice in
+			 * future to drop through and process the data.
+			 *
+			 * Now that TTCP is starting to be used we ought to
+			 * queue this data.
+			 * But, this leaves one open to an easy denial of
+			 * service attack, and SYN cookies can't defend
+			 * against this problem. So, we drop the data
+			 * in the interest of security over speed unless
+			 * it's still in use.
+			 */
+			kfree_skb(skb);
+			return 0;
+		}
+		goto discard;
+
+		/*省略无关代码*/
+discard:
+		__kfree_skb(skb);
+	}
+	return 0;
+}
+\end{minted}
+
+                显然，所接收到的包的ack、rst、fin字段都不为1，故而执行？？行程序。这时开始进行连接检查，判断是否可以允许连接。\textbf{经过不断查找}，我们可以发现最终会掉用tcp\_v4\_conn\_request进行处理。如果syn段合法，内核就会为该连接请求创建连接请求块，并且保存相应的信息。否则，就会返回1,原函数会发送reset给客户端表明连接请求失败。
+
+				当然，如果收到的包的ack字段为1,那么由于此时链接还未建立，故该包无效，返回1,并且调用该函数的函数会发送reset包给对方。如果收到的是rst字段或者既有fin又有syn的字段，那就直接销毁，并且释放内存。
+            \subsubsection{连接请求处理--tcp\_v4\_conn\_request  tcp\_conn\_request}
+				该函数位于/net/ipv4/tcp\_ipv4/tcp\_ipv4.c中，该函数如下：
+\begin{minted}[linenos]{C}
+int tcp_v4_conn_request(struct sock *sk, struct sk_buff *skb)
+{
+	/* Never answer to SYNs send to broadcast or multicast */
+	if (skb_rtable(skb)->rt_flags & (RTCF_BROADCAST | RTCF_MULTICAST))
+		goto drop;
+
+	return tcp_conn_request(&tcp_request_sock_ops,
+				&tcp_request_sock_ipv4_ops, sk, skb);
+
+drop:
+	NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_LISTENDROPS);
+	return 0;
+}
+\end{minted}
+				首先，如果一个SYN段是要被发送到广播地址和组播地址，则直接drop掉，然后返回0。否则的话，就继续调用tcp\_conn\_request进行连接处理。
+\begin{minted}[linenos]{C}
+int tcp_conn_request(struct request_sock_ops *rsk_ops,
+		     const struct tcp_request_sock_ops *af_ops,
+		     struct sock *sk, struct sk_buff *skb)
+{
+	struct tcp_fastopen_cookie foc = { .len = -1 };
+	__u32 isn = TCP_SKB_CB(skb)->tcp_tw_isn;
+	struct tcp_options_received tmp_opt;
+	struct tcp_sock *tp = tcp_sk(sk);
+	struct sock *fastopen_sk = NULL;
+	struct dst_entry *dst = NULL;
+	struct request_sock *req;
+	bool want_cookie = false;
+	struct flowi fl;
+
+	/* TW buckets are converted to open requests without
+	 * limitations, they conserve resources and peer is
+	 * evidently real one.
+	 */
+	if ((sysctl_tcp_syncookies == 2 ||
+	     inet_csk_reqsk_queue_is_full(sk)) && !isn) {
+		want_cookie = tcp_syn_flood_action(sk, skb, rsk_ops->slab_name);
+		if (!want_cookie)
+			goto drop;
+	}
+\end{minted}
+				首先，前面？？？如果SYN请求队列已满并且isn为0,需要查看是否
+		
+\end{document}
