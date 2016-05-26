@@ -182,6 +182,12 @@ linewidth=12pt]{nBox}
 \newenvironment{thinking}{\begin{tBox}\begin{thinkingT}}{\hfill{\color{ThinkColorFont}\tiny\ensuremath{\blacksquare}}\end{thinkingT}\end{tBox}}
 \newenvironment{note}{\begin{nBox}\begin{noteT}}{\end{noteT}\end{nBox}}
 
+\usepackage{caption}
+
+\usepackage{minitoc}
+\dominitoc[c]
+\setcounter{minitocdepth}{4}
+
 %----------------------------------------------------------------------------------------
 %       Code Environment
 %----------------------------------------------------------------------------------------
@@ -203,8 +209,6 @@ leftmargin=13pt]{pcodeBox}
   \textcolor{baseB}{\arabic{FancyVerbLine}
   }
 }
-
-\usepackage{caption}
 
 %\captionsetup{type=codeCaption}
 \newenvironment{codeBox}{\begin{pcodeBox}\fontsize{9pt}{9pt}}{\end{pcodeBox}}
@@ -237,6 +241,9 @@ leftmargin=13pt]{pcodeBox}
 \pagestyle{fancy}
 
 \chapter{准备部分}
+
+\minitoc
+
 \section{用户层TCP}
 
 用户层的TCP编程模型大致如下，对于服务端，调用listen监听端口，
@@ -344,10 +351,14 @@ TCP封包的接收在\mintinline[linenos]{text}{tcp_rcv_established}函数中，
 
 
 \chapter{重要的数据结构}
+
+\minitoc
+
         icsk
         sock\_common
         sock
 \section{sk\_buff}
+\label{sec:sk_buff}
 
 \mintinline{c}{struct sk_buff}这一结构体在各层协议中都会被用到。该结构体存储了
 网络数据报的所有信息。包括各层的头部以及payload，以及必要的各层实现相关的信息。
@@ -365,7 +376,7 @@ TCP封包的接收在\mintinline[linenos]{text}{tcp_rcv_established}函数中，
         struct skb_mstamp skb_mstamp;
       };
     };
-    struct rb_node  rbnode; /* used in netem & tcp stack */
+    struct rb_node  rbnode; /* used in netem and tcp stack */
   };
 \end{minted}
 可以看到，\mintinline{c}{sk_buff}可以被组织成两种数据结构：
@@ -593,84 +604,270 @@ kmemcheck_bitfield_end(flags1);
 \end{minted}
 \mintinline{c}{users}是引用计数，所以是个原子的。\mintinline{c}{truesize}是
 数据报的真实大小。
+
+\section{tcp\_skb\_cb}
+\label{sec:tcp_skb_cb}
+
+在\ref{sec:sk_buff}中，我们分析过\mintinline{c}{cb}。在这一节中，我们将看到
+TCP层具体是如何使用这个控制缓冲区(Control Buffer)的。
+
+\subsection{TCP\_SKB\_CB}
+\label{subsec:tcp_skb_cb}
+
+该宏用于访问给定的\mintinline{c}{sk_buff}的控制缓冲区的变量。在后续的章节中，
+可以在很多函数中看到它的身影。该宏的定义如下：
+
+\begin{minted}[linenos]{c}
+#define TCP_SKB_CB(__skb)       ((struct tcp_skb_cb *)&((__skb)->cb[0]))
+\end{minted}
+
+可以看到，该宏实际上是将\mintinline{c}{cb}的指针强制转型成\mintinline{c}{tcp_skb_cb}
+结构体的指针。也就是说，TCP对于控制缓冲区的使用，可以从\mintinline{c}{tcp_skb_cb}
+的定义分析出来
+
+\subsection{tcp\_skb\_cb结构体}
+\label{subsec:tcp_skb_sb_structure}
+该结构体的定义如下：
+\begin{minted}[linenos]{c}
+/* This is what the send packet queuing engine uses to pass
+ * TCP per-packet control information to the transmission code.
+ * We also store the host-order sequence numbers in here too.
+ * This is 44 bytes if IPV6 is enabled.
+ * If this grows please adjust skbuff.h:skbuff->cb[xxx] size appropriately.
+ */
+struct tcp_skb_cb {
+        __u32           seq;            /* Starting sequence number     */
+        __u32           end_seq;        /* SEQ + FIN + SYN + datalen    */
+        union {
+                /* Note : tcp_tw_isn is used in input path only
+                 *        (isn chosen by tcp_timewait_state_process())
+                 *
+                 *        tcp_gso_segs/size are used in write queue only,
+                 *        cf tcp_skb_pcount()/tcp_skb_mss()
+                 */
+                __u32           tcp_tw_isn;
+                struct {
+                        u16     tcp_gso_segs;
+                        u16     tcp_gso_size;
+                };
+        };
+        __u8            tcp_flags;      /* TCP header flags. (tcp[13])  */
+
+        __u8            sacked;         /* State flags for SACK/FACK.   */
+#define TCPCB_SACKED_ACKED      0x01    /* SKB ACK'd by a SACK block    */
+#define TCPCB_SACKED_RETRANS    0x02    /* SKB retransmitted            */
+#define TCPCB_LOST              0x04    /* SKB is lost                  */
+#define TCPCB_TAGBITS           0x07    /* All tag bits                 */
+#define TCPCB_REPAIRED          0x10    /* SKB repaired (no skb_mstamp) */
+#define TCPCB_EVER_RETRANS      0x80    /* Ever retransmitted frame     */
+#define TCPCB_RETRANS           (TCPCB_SACKED_RETRANS|TCPCB_EVER_RETRANS| \
+                                TCPCB_REPAIRED)
+
+        __u8            ip_dsfield;     /* IPv4 tos or IPv6 dsfield     */
+        /* 1 byte hole */
+        __u32           ack_seq;        /* Sequence number ACK'd        */
+        union {
+                struct inet_skb_parm    h4;
+#if IS_ENABLED(CONFIG_IPV6)
+                struct inet6_skb_parm   h6;
+#endif
+        } header;       /* For incoming frames          */
+};
+\end{minted}
         
 \chapter{TCP建立连接过程}
+
+\minitoc
+
     \section{TCP主动打开-客户}
         \subsection{基本流程}
         主动打开是通过connect系统调用来完成的。这一系统调用最终会调用传输层的\mintinline{c}{tcp_v4_connect}函数。
-        \subsection{tcp\_connect}
+        \subsection{第一次握手——构造并发送SYN包}
+\subsubsection{tcp\_v4\_connect}
 
-经过一系列的判断之后，调用\mintinline[linenos]{text}{tcp_connect}，构造SYN报文并发送。
-\mintinline[linenos]{text}{tcp_connect}函数较短，易于实现，我们先从这里入手。首先整理出该
-函数所调用的其它函数的用法和意义。
-
-\subsubsection{函数依赖分析}
 
 \begin{minted}[linenos]{c}
-/* 初始化一个TCP连接 */
-tcp_connect_init(struct sock *sk);
-/* 结束一个TCP连接 */
-tcp_finish_connect(struct sock *sk, NULL);
-/* 分配一个skb缓存
- * 其中，gfp是分配内存的模式，这个和Linux的内存管理有关。
- * sock结构体中的sk_allocation指定了这一模式。
- * force_schedule根据分析sk_stream_alloc_skb代码，
- * 可知，这个是用来强制内存分配分配到精确满足大小要求的内存。
- */
-sk_stream_alloc_skb(struct sock *sk, int size,
-gfp_t gfp, bool force_schedule);
-/* 这个函数用于构造非数据skb的控制位。如果设置了SYN/FIN，则
- * 自动自增seqno。
- */
-tcp_init_nondata_skb(struct sk_buff *skb, seq, u8 flags);
-/* 将skb加入到发送队列中。（此处是否和滑动窗口有关？） */ 
-tcp_connect_queue_skb(struct sock *sk, struct sk_buff *skb);
-/* 该函数是真正实现将队列中的TCP包发送出去的功能。
- * 在发送和重传过程中均会用到该函数。此处所有的SKB是无头部(headerless)的
- * 在该函数中，我们需要构造TCP头部，然后将包发给IP层，以使得
- * 该报文能够真正发送出去。
- */
-tcp_transmit_skb(struct sock *sk, struct sk_buff *skb, int clone_it,
-gfp_t gfp_mask);
-/* 用于SNMP数据统计的，和本次实验的核心应该关系不大。
- */
- TCP_INC_STATS(sock_net(sk), TCP_MIB_ACTIVEOPENS);
-/* 重置定时器，what处可以接收的值为ICSK_TIME_RETRANS,ICSK_TIME_EARLY_RETRANS,
- * ICSK_TIME_PROBE0,ICSK_TIME_LOSS_PROBE。其中when是超时时间，
- * max_when是系统所允许的最大超时时间。
- */
-inet_csk_reset_xmit_timer(struct sock *sk, const int what,
-                          unsigned long when,
-                          const unsigned long max_when);
+/* This will initiate an outgoing connection. */
+int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
+{
+        struct sockaddr_in *usin = (struct sockaddr_in *)uaddr;
+        struct inet_sock *inet = inet_sk(sk);
+        struct tcp_sock *tp = tcp_sk(sk);
+        __be16 orig_sport, orig_dport;
+        __be32 daddr, nexthop;
+        struct flowi4 *fl4;
+        struct rtable *rt;
+        int err;
+        struct ip_options_rcu *inet_opt;
+
+        if (addr_len < sizeof(struct sockaddr_in))
+                return -EINVAL;
+
+        if (usin->sin_family != AF_INET)
+                return -EAFNOSUPPORT;
+
+        nexthop = daddr = usin->sin_addr.s_addr;
+        inet_opt = rcu_dereference_protected(inet->inet_opt,
+                                             sock_owned_by_user(sk));
+        if (inet_opt && inet_opt->opt.srr) {
+                if (!daddr)
+                        return -EINVAL;
+                nexthop = inet_opt->opt.faddr;
+        }
+
+        orig_sport = inet->inet_sport;
+        orig_dport = usin->sin_port;
+        fl4 = &inet->cork.fl.u.ip4;
+        rt = ip_route_connect(fl4, nexthop, inet->inet_saddr,
+                              RT_CONN_FLAGS(sk), sk->sk_bound_dev_if,
+                              IPPROTO_TCP,
+                              orig_sport, orig_dport, sk);
+        if (IS_ERR(rt)) {
+                err = PTR_ERR(rt);
+                if (err == -ENETUNREACH)
+                        IP_INC_STATS(sock_net(sk), IPSTATS_MIB_OUTNOROUTES);
+                return err;
+        }
+
+        if (rt->rt_flags & (RTCF_MULTICAST | RTCF_BROADCAST)) {
+                ip_rt_put(rt);
+                return -ENETUNREACH;
+        }
+
+        if (!inet_opt || !inet_opt->opt.srr)
+                daddr = fl4->daddr;
+
+        if (!inet->inet_saddr)
+                inet->inet_saddr = fl4->saddr;
+        sk_rcv_saddr_set(sk, inet->inet_saddr);
+
+        if (tp->rx_opt.ts_recent_stamp && inet->inet_daddr != daddr) {
+                /* Reset inherited state */
+                tp->rx_opt.ts_recent       = 0;
+                tp->rx_opt.ts_recent_stamp = 0;
+                if (likely(!tp->repair))
+                        tp->write_seq      = 0;
+        }
+
+        if (tcp_death_row.sysctl_tw_recycle &&
+            !tp->rx_opt.ts_recent_stamp && fl4->daddr == daddr)
+                tcp_fetch_timewait_stamp(sk, &rt->dst);
+
+        inet->inet_dport = usin->sin_port;
+        sk_daddr_set(sk, daddr);
+
+        inet_csk(sk)->icsk_ext_hdr_len = 0;
+        if (inet_opt)
+                inet_csk(sk)->icsk_ext_hdr_len = inet_opt->opt.optlen;
+
+        tp->rx_opt.mss_clamp = TCP_MSS_DEFAULT;
+
+        /* Socket identity is still unknown (sport may be zero).
+         * However we set state to SYN-SENT and not releasing socket
+         * lock select source port, enter ourselves into the hash tables and
+         * complete initialization after this.
+         */
+        tcp_set_state(sk, TCP_SYN_SENT);
+        err = inet_hash_connect(&tcp_death_row, sk);
+        if (err)
+                goto failure;
+
+        sk_set_txhash(sk);
+
+        rt = ip_route_newports(fl4, rt, orig_sport, orig_dport,
+                               inet->inet_sport, inet->inet_dport, sk);
+        if (IS_ERR(rt)) {
+                err = PTR_ERR(rt);
+                rt = NULL;
+                goto failure;
+        }
+        /* OK, now commit destination to socket.  */
+        sk->sk_gso_type = SKB_GSO_TCPV4;
+        sk_setup_caps(sk, &rt->dst);
+
+        if (!tp->write_seq && likely(!tp->repair))
+                tp->write_seq = secure_tcp_sequence_number(inet->inet_saddr,
+                                                           inet->inet_daddr,
+                                                           inet->inet_sport,
+                                                           usin->sin_port);
+
+        inet->inet_id = tp->write_seq ^ jiffies;
+
+        err = tcp_connect(sk);
+
+        rt = NULL;
+        if (err)
+                goto failure;
+
+        return 0;
+
+failure:
+        /*
+         * This unhashes the socket and releases the local port,
+         * if necessary.
+         */
+        tcp_set_state(sk, TCP_CLOSE);
+        ip_rt_put(rt);
+        sk->sk_route_caps = 0;
+        inet->inet_dport = 0;
+        return err;
+}
 \end{minted}
 
-\subsubsection{基本思路}
+\subsubsection{tcp\_ connect}
+上面的\mintinline{c}{tcp_v4_connect}会进行一系列的判断，之后真正构造SYN包的部分
+被放置在了\mintinline{c}{tcp_connect}中。接下来，我们来分析这个函数。
 
-\begin{enumerate}
-\def\labelenumi{\arabic{enumi}.}
-\item
-  初始化TCP连接
-\item
-  如果repair位被置1，那么结束TCP连接
-\item
-  为sk\_buff分配内存，如果发生错误，则返回-ENOBUFS
-\item
-  初始化skb，此时需要将write\_seq自增，同时flags设置为TCPHDR\_SYN
-\item
-  设置retrans\_stamp为tcp\_time\_stamp
-\item
-  将skb加入到发送队列中
-\item
-  实际地发送skb。
-\item
-  将snd\_nxt设置为write\_seq
-\item
-  将pushed\_seq设置为write\_seq
-\item
-  更新统计数据(TCP\_INC\_STATS(sock\_net(sk), TCP\_MIB\_ACTIVEOPENS);)
-\item
-  重置ICSK\_TIME\_RETRANS定时器。超时时间为icsk\_rto。
-\end{enumerate}
+\begin{minted}[linenos]{c}
+/* 该函数用于构造并发送SYN包 */
+int tcp_connect(struct sock *sk)
+{
+        struct tcp_sock *tp = tcp_sk(sk);
+        struct sk_buff *buff;
+        int err;
+
+        /* 初始化tcp连接 */
+        tcp_connect_init(sk);
+
+        if (unlikely(tp->repair)) {
+                /* 如果repair位被置1，那么结束TCP连接 */
+                tcp_finish_connect(sk, NULL);
+                return 0;
+        }
+
+        /* 分配一个sk_buff */
+        buff = sk_stream_alloc_skb(sk, 0, sk->sk_allocation, true);
+        if (unlikely(!buff))
+                return -ENOBUFS;
+
+        /* 初始化skb，并自增write_seq的值 */
+        tcp_init_nondata_skb(buff, tp->write_seq++, TCPHDR_SYN);
+        /* 设置时间戳 */
+        tp->retrans_stamp = tcp_time_stamp;
+        /* 将当前的sk_buff添加到发送队列中 */
+        tcp_connect_queue_skb(sk, buff);
+        /* ECN支持 */
+        tcp_ecn_send_syn(sk, buff);
+
+        /* 发送SYN包，这里同时还考虑了Fast Open的情况 */
+        err = tp->fastopen_req ? tcp_send_syn_data(sk, buff) :
+              tcp_transmit_skb(sk, buff, 1, sk->sk_allocation);
+        if (err == -ECONNREFUSED)
+                return err;
+
+        /* We change tp->snd_nxt after the tcp_transmit_skb() call
+         * in order to make this packet get counted in tcpOutSegs.
+         */
+        tp->snd_nxt = tp->write_seq;
+        tp->pushed_seq = tp->write_seq;
+        TCP_INC_STATS(sock_net(sk), TCP_MIB_ACTIVEOPENS);
+
+        /* 设定超时重传定时器 */
+        inet_csk_reset_xmit_timer(sk, ICSK_TIME_RETRANS,
+                                  inet_csk(sk)->icsk_rto, TCP_RTO_MAX);
+        return 0;
+}
+\end{minted}
 
 \subsection{tcp\_transmit\_skb}
 
@@ -1114,10 +1311,82 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
                 首先，前面？？？如果SYN请求队列已满并且isn为0,需要查看是否
         
         
-\chapter{辅助函数}
+\chapter{非核心函数分析}
+
+\minitoc
+
+\section{SKB相关函数和宏}
+
+\section{TCP相关函数和宏}
+\subsection{tcp\_init\_nondata\_skb}
+该函数提供了初始化不含数据的skb的功能。函数原型如下：
+\begin{minted}[linenos]{c}
+tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags);
+\end{minted}
+
+\begin{description}
+  \item[skb] 待初始化的\mintinline{c}{sk_buff}。
+  \item[seq] 序号
+  \item[flags] 标志位
+\end{description}
+
+\begin{minted}[linenos]{c}
+static void tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags)
+{
+        /* 设置校验码 */
+        skb->ip_summed = CHECKSUM_PARTIAL;
+        skb->csum = 0;
+
+        /* 设置标志位 */
+        TCP_SKB_CB(skb)->tcp_flags = flags;
+        TCP_SKB_CB(skb)->sacked = 0;
+
+        tcp_skb_pcount_set(skb, 1);
+
+        /* 设置起始序号 */
+        TCP_SKB_CB(skb)->seq = seq;
+        if (flags & (TCPHDR_SYN | TCPHDR_FIN))
+                seq++;
+        TCP_SKB_CB(skb)->end_seq = seq;
+}
+\end{minted}
+
+\begin{minted}[linenos]{c}
+/* 初始化一个TCP连接 */
+tcp_connect_init(struct sock *sk);
+/* 结束一个TCP连接 */
+tcp_finish_connect(struct sock *sk, NULL);
+/* 分配一个skb缓存
+ * 其中，gfp是分配内存的模式，这个和Linux的内存管理有关。
+ * sock结构体中的sk_allocation指定了这一模式。
+ * force_schedule根据分析sk_stream_alloc_skb代码，
+ * 可知，这个是用来强制内存分配分配到精确满足大小要求的内存。
+ */
+sk_stream_alloc_skb(struct sock *sk, int size,
+gfp_t gfp, bool force_schedule);
+/* 将skb加入到发送队列中。（此处是否和滑动窗口有关？） */ 
+tcp_connect_queue_skb(struct sock *sk, struct sk_buff *skb);
+/* 该函数是真正实现将队列中的TCP包发送出去的功能。
+ * 在发送和重传过程中均会用到该函数。此处所有的SKB是无头部(headerless)的
+ * 在该函数中，我们需要构造TCP头部，然后将包发给IP层，以使得
+ * 该报文能够真正发送出去。
+ */
+tcp_transmit_skb(struct sock *sk, struct sk_buff *skb, int clone_it,
+gfp_t gfp_mask);
+
+/* 重置定时器，what处可以接收的值为ICSK_TIME_RETRANS,ICSK_TIME_EARLY_RETRANS,
+ * ICSK_TIME_PROBE0,ICSK_TIME_LOSS_PROBE。其中when是超时时间，
+ * max_when是系统所允许的最大超时时间。
+ */
+inet_csk_reset_xmit_timer(struct sock *sk, const int what,
+                          unsigned long when,
+                          const unsigned long max_when);
+\end{minted}
+
+\section{辅助函数}
 有些小函数是用于辅助一些很底层的功能的，这里单独列出来。
 
-\section{字节序}
+\subsection{字节序}
 CPU分为大端和小端两种。而在网络传输的过程中，大小端的不一致会带来问题。
 因此，网络协议中对于字节序都有明确规定。一般采用大端序。
 
