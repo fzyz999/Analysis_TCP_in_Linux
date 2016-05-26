@@ -1,0 +1,108 @@
+\chapter{准备部分}
+
+\minitoc
+
+\section{用户层TCP}
+
+用户层的TCP编程模型大致如下，对于服务端，调用listen监听端口，
+之后接受客户端的请求，然后就可以收发数据了。结束时，关闭socket。
+
+\begin{minted}[linenos]{c}
+// Server
+socket(...,SOCK_STREAM,0);
+bind(...,&server_address, ...);
+listen(...);
+accept(..., &client_address, ...);
+recv(..., &clientaddr, ...);
+close(...);
+\end{minted}
+
+对于客户端，则调用connect连接服务端，之后便可以收发数据。
+最后关闭socket。
+
+\begin{minted}[linenos]{c}
+socket(...,SOCK_STREAM,0);
+connect();
+send(...,&server_address,...);
+\end{minted}
+
+那么根据我们的需求，我们着重照顾连接的建立、关闭和封包的收发过程。
+
+\section{探寻tcp\_prot，地图get\textasciitilde{}}
+
+一般游戏的主角手中，都会有一张万能的地图。为了搞定TCP，我们自然也是需要
+一张地图的，要不连该去找那个函数看都不知道。很有幸，在\mintinline[linenos]{text}{tcp_ipv4.c}中，
+\mintinline[linenos]{text}{tcp_prot}定义了\mintinline[linenos]{text}{tcp}的各个接口。
+
+\mintinline[linenos]{text}{tcp_prot}的类型为\mintinline[linenos]{text}{struct proto}，是这个结构体是为了抽象各种不同的协议的
+差异性而存在的。类似面向对象中所说的接口(Interface)的概念。这里，我们仅
+保留我们关系的部分。
+
+\begin{minted}[linenos]{c}
+struct proto tcp_prot = {
+        .name                   = "TCP",
+        .owner                  = THIS_MODULE,
+        .close                  = tcp_close,
+        .connect                = tcp_v4_connect,
+        .disconnect             = tcp_disconnect,
+        .accept                 = inet_csk_accept,
+        .destroy                = tcp_v4_destroy_sock,
+        .shutdown               = tcp_shutdown,
+        .setsockopt             = tcp_setsockopt,
+        .getsockopt             = tcp_getsockopt,
+        .recvmsg                = tcp_recvmsg,
+        .sendmsg                = tcp_sendmsg,
+        .sendpage               = tcp_sendpage,
+        .backlog_rcv            = tcp_v4_do_rcv,
+        .get_port               = inet_csk_get_port,
+        .twsk_prot              = &tcp_timewait_sock_ops,
+        .rsk_prot               = &tcp_request_sock_ops,
+};
+\end{minted}
+
+通过名字，我大致筛选出来了这些函数，初步判断这些函数与实验所关心的功能相关。
+对着这张``地图''，就可以顺藤摸瓜，找出些路径了。
+
+先根据参考书《Linux内核源码剖析------TCP/IP实现》中给出的流程图，
+找出所有和需求相关的部分。
+
+首先找三次握手相关的部分：从客户端的角度，发起连接需要调用\mintinline[linenos]{text}{tcp_v4_connect}，
+该函数会进一步调用\mintinline[linenos]{text}{tcp_connect}，在这个函数中，会调用\mintinline[linenos]{text}{tcp_send_syn_data}
+发送SYN报文，并设定超时计时器。第二次握手相关的接收代码在\mintinline[linenos]{text}{tcp_rcv_state_process}中，
+该函数实现了除\mintinline[linenos]{text}{ESTABLISHED}和\mintinline[linenos]{text}{TIME_WAIT}之外所有状态下的接收处理。
+\mintinline[linenos]{text}{tcp_send_ack}函数实现了发送ACK报文。从服务端的角度，则还需实现\mintinline[linenos]{text}{listen}调用和
+\mintinline[linenos]{text}{accept}调用。二者都是服务端建立连接所需要的部分。
+
+封包的封装发送部分，所对应的函数是\mintinline[linenos]{text}{tcp_sendmsg}，实现对数据的复制、切割和发送。
+TCP的重传接口为\mintinline[linenos]{text}{tcp_retransmit_skb}，这里尚有疑问，因为这个函数是负责处理重传的，
+而不是判断是否应当重传的。所以并不明确到底是否该重新实现这一部分。
+
+TCP封包的接收在\mintinline[linenos]{text}{tcp_rcv_established}函数中，根据目前有限的资料看，TCP的滑动窗口机制应该
+在这一部分，更细节的内容待确认。
+
+目前，待重新实现的函数列表是：
+
+\begin{itemize}
+\item
+  tcp\_transmit\_skb
+\item
+  tcp\_rcv\_state\_process
+\item
+  tcp\_connect
+\item
+  tcp\_rcv\_synsent\_state\_process
+\item
+  tcp\_rcv\_established
+\item
+  tcp\_send\_ack
+\item
+  tcp\_sendmsg
+\item
+  tcp\_retransmit\_skb（存疑）
+\item
+  tcp\_rcv\_established
+\item
+  accept和listen（待详细调查）
+\item
+  更多需要等进一步仔细阅读后再做决定
+\end{itemize}

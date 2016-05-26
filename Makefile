@@ -4,6 +4,5 @@ all: tcp.tex
 
 .PHONY:clean
 clean:
-	rm *.aux *.log *.out *.pdf *.toc 
-	rm -rf _minted-tcp/
-
+	rm *.aux *.log *.out *.pdf *.toc *.maf *.mtc* 
+	rm -rf *minted*

@@ -1,0 +1,416 @@
+\section{TCP主动打开-客户}
+        \subsection{基本流程}
+        主动打开是通过connect系统调用来完成的。这一系统调用最终会调用传输层的\mintinline{c}{tcp_v4_connect}函数。
+        \subsection{第一次握手——构造并发送SYN包}
+\subsubsection{tcp\_v4\_connect}
+
+
+\begin{minted}[linenos]{c}
+/* This will initiate an outgoing connection. */
+int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
+{
+        struct sockaddr_in *usin = (struct sockaddr_in *)uaddr;
+        struct inet_sock *inet = inet_sk(sk);
+        struct tcp_sock *tp = tcp_sk(sk);
+        __be16 orig_sport, orig_dport;
+        __be32 daddr, nexthop;
+        struct flowi4 *fl4;
+        struct rtable *rt;
+        int err;
+        struct ip_options_rcu *inet_opt;
+
+        if (addr_len < sizeof(struct sockaddr_in))
+                return -EINVAL;
+
+        if (usin->sin_family != AF_INET)
+                return -EAFNOSUPPORT;
+
+        nexthop = daddr = usin->sin_addr.s_addr;
+        inet_opt = rcu_dereference_protected(inet->inet_opt,
+                                             sock_owned_by_user(sk));
+        if (inet_opt && inet_opt->opt.srr) {
+                if (!daddr)
+                        return -EINVAL;
+                nexthop = inet_opt->opt.faddr;
+        }
+
+        orig_sport = inet->inet_sport;
+        orig_dport = usin->sin_port;
+        fl4 = &inet->cork.fl.u.ip4;
+        rt = ip_route_connect(fl4, nexthop, inet->inet_saddr,
+                              RT_CONN_FLAGS(sk), sk->sk_bound_dev_if,
+                              IPPROTO_TCP,
+                              orig_sport, orig_dport, sk);
+        if (IS_ERR(rt)) {
+                err = PTR_ERR(rt);
+                if (err == -ENETUNREACH)
+                        IP_INC_STATS(sock_net(sk), IPSTATS_MIB_OUTNOROUTES);
+                return err;
+        }
+
+        if (rt->rt_flags & (RTCF_MULTICAST | RTCF_BROADCAST)) {
+                ip_rt_put(rt);
+                return -ENETUNREACH;
+        }
+
+        if (!inet_opt || !inet_opt->opt.srr)
+                daddr = fl4->daddr;
+
+        if (!inet->inet_saddr)
+                inet->inet_saddr = fl4->saddr;
+        sk_rcv_saddr_set(sk, inet->inet_saddr);
+
+        if (tp->rx_opt.ts_recent_stamp && inet->inet_daddr != daddr) {
+                /* Reset inherited state */
+                tp->rx_opt.ts_recent       = 0;
+                tp->rx_opt.ts_recent_stamp = 0;
+                if (likely(!tp->repair))
+                        tp->write_seq      = 0;
+        }
+
+        if (tcp_death_row.sysctl_tw_recycle &&
+            !tp->rx_opt.ts_recent_stamp && fl4->daddr == daddr)
+                tcp_fetch_timewait_stamp(sk, &rt->dst);
+
+        inet->inet_dport = usin->sin_port;
+        sk_daddr_set(sk, daddr);
+
+        inet_csk(sk)->icsk_ext_hdr_len = 0;
+        if (inet_opt)
+                inet_csk(sk)->icsk_ext_hdr_len = inet_opt->opt.optlen;
+
+        tp->rx_opt.mss_clamp = TCP_MSS_DEFAULT;
+
+        /* Socket identity is still unknown (sport may be zero).
+         * However we set state to SYN-SENT and not releasing socket
+         * lock select source port, enter ourselves into the hash tables and
+         * complete initialization after this.
+         */
+        tcp_set_state(sk, TCP_SYN_SENT);
+        err = inet_hash_connect(&tcp_death_row, sk);
+        if (err)
+                goto failure;
+
+        sk_set_txhash(sk);
+
+        rt = ip_route_newports(fl4, rt, orig_sport, orig_dport,
+                               inet->inet_sport, inet->inet_dport, sk);
+        if (IS_ERR(rt)) {
+                err = PTR_ERR(rt);
+                rt = NULL;
+                goto failure;
+        }
+        /* OK, now commit destination to socket.  */
+        sk->sk_gso_type = SKB_GSO_TCPV4;
+        sk_setup_caps(sk, &rt->dst);
+
+        if (!tp->write_seq && likely(!tp->repair))
+                tp->write_seq = secure_tcp_sequence_number(inet->inet_saddr,
+                                                           inet->inet_daddr,
+                                                           inet->inet_sport,
+                                                           usin->sin_port);
+
+        inet->inet_id = tp->write_seq ^ jiffies;
+
+        err = tcp_connect(sk);
+
+        rt = NULL;
+        if (err)
+                goto failure;
+
+        return 0;
+
+failure:
+        /*
+         * This unhashes the socket and releases the local port,
+         * if necessary.
+         */
+        tcp_set_state(sk, TCP_CLOSE);
+        ip_rt_put(rt);
+        sk->sk_route_caps = 0;
+        inet->inet_dport = 0;
+        return err;
+}
+\end{minted}
+
+\subsubsection{tcp\_ connect}
+上面的\mintinline{c}{tcp_v4_connect}会进行一系列的判断，之后真正构造SYN包的部分
+被放置在了\mintinline{c}{tcp_connect}中。接下来，我们来分析这个函数。
+
+\begin{minted}[linenos]{c}
+/* 该函数用于构造并发送SYN包 */
+int tcp_connect(struct sock *sk)
+{
+        struct tcp_sock *tp = tcp_sk(sk);
+        struct sk_buff *buff;
+        int err;
+
+        /* 初始化tcp连接 */
+        tcp_connect_init(sk);
+
+        if (unlikely(tp->repair)) {
+                /* 如果repair位被置1，那么结束TCP连接 */
+                tcp_finish_connect(sk, NULL);
+                return 0;
+        }
+
+        /* 分配一个sk_buff */
+        buff = sk_stream_alloc_skb(sk, 0, sk->sk_allocation, true);
+        if (unlikely(!buff))
+                return -ENOBUFS;
+
+        /* 初始化skb，并自增write_seq的值 */
+        tcp_init_nondata_skb(buff, tp->write_seq++, TCPHDR_SYN);
+        /* 设置时间戳 */
+        tp->retrans_stamp = tcp_time_stamp;
+        /* 将当前的sk_buff添加到发送队列中 */
+        tcp_connect_queue_skb(sk, buff);
+        /* ECN支持 */
+        tcp_ecn_send_syn(sk, buff);
+
+        /* 发送SYN包，这里同时还考虑了Fast Open的情况 */
+        err = tp->fastopen_req ? tcp_send_syn_data(sk, buff) :
+              tcp_transmit_skb(sk, buff, 1, sk->sk_allocation);
+        if (err == -ECONNREFUSED)
+                return err;
+
+        /* We change tp->snd_nxt after the tcp_transmit_skb() call
+         * in order to make this packet get counted in tcpOutSegs.
+         */
+        tp->snd_nxt = tp->write_seq;
+        tp->pushed_seq = tp->write_seq;
+        TCP_INC_STATS(sock_net(sk), TCP_MIB_ACTIVEOPENS);
+
+        /* 设定超时重传定时器 */
+        inet_csk_reset_xmit_timer(sk, ICSK_TIME_RETRANS,
+                                  inet_csk(sk)->icsk_rto, TCP_RTO_MAX);
+        return 0;
+}
+\end{minted}
+
+\subsection{tcp\_transmit\_skb}
+
+\subsubsection{函数依赖分析}
+
+\begin{minted}[linenos]{c}
+/* 为SYN包计算TCP选项，这个函数中计算出来的还不是最终的格式。
+ */
+static unsigned int tcp_syn_options(struct sock *sk, struct sk_buff *skb,
+                                struct tcp_out_options *opts,
+                                struct tcp_md5sig_key **md5);
+/* 为已经建立连接的套接字计算TCP选项，这个函数中计算出来的还不是最终的格式。
+ */
+static unsigned int tcp_established_options(struct sock *sk, struct sk_buff *skb,
+                                        struct tcp_out_options *opts,
+                                        struct tcp_md5sig_key **md5);
+/* 在skb中为头部流出空间。
+ */
+skb_push(skb, tcp_header_size);
+/* 判断skb是否为一个纯ACK。这里把实现也放出来了。可以看到，纯ACK的包最显著
+ * 的特点是其长度。Linux里通过判断长度直接快速判断出skb是否为一个纯ACK。
+ */
+static inline bool skb_is_tcp_pure_ack(const struct sk_buff *skb)
+{
+        return skb->truesize == 2;
+}
+/* 重置传输层的header的指针？
+ */
+static inline void skb_reset_transport_header(struct sk_buff *skb)
+{
+        skb->transport_header = skb->data - skb->head;
+}
+/* 选择发送窗口的大小
+ */
+tcp_select_window(sk);
+tcp_urg_mode(tp);
+before(tcb->seq, tp->snd_up);
+tcp_options_write((__be32 *)(th + 1), tp, &opts);
+tcp_event_ack_sent(sk, tcp_skb_pcount(skb));
+tcp_event_data_sent(tp, sk);
+queue_xmit();
+tcp_enter_cwr(sk);
+net_xmit_eval(err);
+\end{minted}
+
+\subsection{tcp\_select\_window(struct sk\_buff *skb)}
+这个函数的作用是选择一个新的窗口大小以用于更新\mintinline{c}{tcp_sock}。
+返回的结果根据RFC1323进行了缩放。
+
+\subsubsection{RFC1323——高性能TCP扩展(TCP Extensions for High Performance)}
+这个RFC主要是在考虑高带宽高延迟网络下如何提升TCP的性能。就好像一个又粗又长的管道，
+如果想要管道的利用率高，就要尽可能地把管道填满。但是TCP能够同时发送的东西的上限是
+受到发送窗口的限制的。超过了窗口大小，就必须等待ACK确认才可以继续发送。
+
+然而，在TCP头部中，只有16位的一个域用于说明窗口大小。也就是说，窗口大小最大只能
+达到$2^{16}=64K字节$。为了解决这一问题，RFC1323新增了一个TCP选项，用于放大窗口的
+大小。该选项的值代表将原窗口大小放大2的幂倍。
+
+个人认为这个设计很有好。采用2的幂来缩放可以很大程度地扩展窗口的大小，因为2的幂
+增长得很快。而且可以通过位移运算来实现缩放，性能上也很好。
+
+\subsubsection{代码分析}
+\begin{minted}[linenos]{c}
+static u16 tcp_select_window(struct sock *sk)
+{
+        struct tcp_sock *tp = tcp_sk(sk);
+        u32 old_win = tp->rcv_wnd;
+        u32 cur_win = tcp_receive_window(tp);
+        u32 new_win = __tcp_select_window(sk);
+        /* old_win是接收方窗口的大小。
+         * cur_win当前的接收窗口大小。
+         * new_win是新选择出来的窗口大小。
+         */
+
+        /* 当新窗口的大小小于当前窗口的大小时，不能缩减窗口大小。
+         * 这是IEEE强烈不建议的一种行为。
+         */
+        if (new_win < cur_win) {
+                /* Danger Will Robinson!
+                 * Don't update rcv_wup/rcv_wnd here or else
+                 * we will not be able to advertise a zero
+                 * window in time.  --DaveM
+                 *
+                 * Relax Will Robinson.
+                 */
+                if (new_win == 0)
+                        NET_INC_STATS(sock_net(sk),
+                                      LINUX_MIB_TCPWANTZEROWINDOWADV);
+                /* 当计算出来的新窗口小于当前窗口时，将新窗口设置为大于cur_win
+                 * 的1<<tp->rx_opt.rcv_wscale的整数倍。
+                 */
+                new_win = ALIGN(cur_win, 1 << tp->rx_opt.rcv_wscale);
+        }
+        /* 将当前的接收窗口设置为新的窗口大小。*/
+        tp->rcv_wnd = new_win;
+        tp->rcv_wup = tp->rcv_nxt;
+
+        /* 判断当前窗口未越界。*/
+        if (!tp->rx_opt.rcv_wscale && sysctl_tcp_workaround_signed_windows)
+                new_win = min(new_win, MAX_TCP_WINDOW);
+        else
+                new_win = min(new_win, (65535U << tp->rx_opt.rcv_wscale));
+
+        /* RFC1323 缩放窗口大小。这里之所以是右移，是因为此时的new_win是
+         * 窗口的真正大小。所以返回时需要返回正常的可以放在16位整型中的窗口大小。
+         * 所以需要右移。
+         */
+        new_win >>= tp->rx_opt.rcv_wscale;
+
+        /* If we advertise zero window, disable fast path. */
+        if (new_win == 0) {
+                tp->pred_flags = 0;
+                if (old_win)
+                        NET_INC_STATS(sock_net(sk),
+                                      LINUX_MIB_TCPTOZEROWINDOWADV);
+        } else if (old_win == 0) {
+                NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPFROMZEROWINDOWADV);
+        }
+
+        return new_win;
+}
+\end{minted}
+
+在这个过程中，还调用了\mintinline{c}{__tcp_select_window(sk)}来计算新的窗口大小。
+该函数会尝试增加窗口的大小，但是有两个限制条件：
+
+\begin{enumerate}
+  \item 窗口不能收缩(RFC793)
+  \item 每个socket所能使用的内存是有限制的。
+\end{enumerate}
+
+RFC 1122中说：
+\begin{quote}
+"the suggested [SWS] avoidance algorithm for the receiver is to keep
+RECV.NEXT + RCV.WIN fixed until:
+RCV.BUFF - RCV.USER - RCV.WINDOW >= min(1/2 RCV.BUFF, MSS)"
+
+推荐的用于接收方的糊涂窗口综合症的避免算法是保持recv.next+rcv.win不变，直到：
+RCV.BUFF - RCV.USER - RCV.WINDOW >= min(1/2 RCV.BUFF, MSS)
+\end{quote}
+
+换句话说，就是除非缓存的大小多出来至少一个MSS那么多字节，否则不要增长窗口右边界
+的大小。
+
+然而，根据Linux注释中的说法，被推荐的这个算法会破坏头预测(header prediction)，
+因为头预测会假定\mintinline{c}{th->window}不变。严格地说，
+保持\mintinline{c}{th->window}固定不变会违背接收方的用于防止糊涂窗口综合症的准则。
+在这种规则下，一个单字节的包的流会引发窗口的右边界总是提前一个字节。
+当然，如果发送方实现了预防糊涂窗口综合症的方法，那么就不会出现问题。
+
+Linux的TCP部分的作者们参考了BSD的实现方法。BSD在这方面的做法是是，
+如果空闲空间小于最大可用空间的$\frac{1}{4}$，且空闲空间
+小于mss的$\frac{1}{2}$，那么就把窗口设置为0。否则，只是单纯地阻止窗口缩小，
+或者阻止窗口大于最大可表示的范围(the largest representable value)。
+BSD的方法似乎“意外地”使得窗口基本上都是MSS的整倍数。且很多情况下窗口大小都是
+固定不变的。因此，Linux采用强制窗口为MSS的整倍数，以获得相似的行为。
+
+\begin{minted}[linenos]{c}
+u32 __tcp_select_window(struct sock *sk)
+{
+        struct inet_connection_sock *icsk = inet_csk(sk);
+        struct tcp_sock *tp = tcp_sk(sk);
+        int mss = icsk->icsk_ack.rcv_mss;
+        int free_space = tcp_space(sk);
+        int allowed_space = tcp_full_space(sk);
+        int full_space = min_t(int, tp->window_clamp, allowed_space);
+        int window;
+
+        /* 如果mss超过了总共的空间大小，那么把mss限制在允许的空间范围内。 */
+        if (mss > full_space)
+                mss = full_space;
+
+        if (free_space < (full_space >> 1)) {
+                /* 当空闲空间小于允许空间的一半时。 */
+                icsk->icsk_ack.quick = 0;
+
+                if (tcp_under_memory_pressure(sk))
+                        tp->rcv_ssthresh = min(tp->rcv_ssthresh,
+                                               4U * tp->advmss);
+
+                /* free_space有可能成为新的窗口的大小，因此，需要考虑
+                 * 窗口扩展的影响。
+                 */
+                free_space = round_down(free_space, 1 << tp->rx_opt.rcv_wscale);
+
+                /* 如果空闲空间小于mss的大小，或者低于最大允许空间的的1/16，那么，
+                 * 返回0窗口。否则，tcp_clamp_window()会增长接收缓存到tcp_rmem[2]。
+                 * 新进入的数据会由于内醋限制而被丢弃。对于较大的窗口，单纯地探测mss的
+                 * 大小以宣告0窗口有些太晚了（可能会超过限制）。
+                 */
+                if (free_space < (allowed_space >> 4) || free_space < mss)
+                        return 0;
+        }
+
+        if (free_space > tp->rcv_ssthresh)
+                free_space = tp->rcv_ssthresh;
+
+        /* 这里处理一个例外情况，就是如果开启了窗口缩放，那么就没法对齐mss了。
+         * 所以就保持窗口是对齐2的幂的。
+         */
+        window = tp->rcv_wnd;
+        if (tp->rx_opt.rcv_wscale) {
+                window = free_space;
+
+                /* Advertise enough space so that it won't get scaled away.
+                 * Import case: prevent zero window announcement if
+                 * 1<<rcv_wscale > mss.
+                 */
+                if (((window >> tp->rx_opt.rcv_wscale) << tp->rx_opt.rcv_wscale) != window)
+                        window = (((window >> tp->rx_opt.rcv_wscale) + 1)
+                                  << tp->rx_opt.rcv_wscale);
+        } else {
+                /* 如果内存条件允许，那么就把窗口设置为mss的整倍数。
+                 * 或者如果free_space > 当前窗口大小加上全部允许的空间的一半，
+                 * 那么，就将窗口大小设置为free_space
+                 */
+                if (window <= free_space - mss || window > free_space)
+                        window = (free_space / mss) * mss;
+                else if (mss == full_space &&
+                         free_space > window + (full_space >> 1))
+                        window = free_space;
+        }
+
+        return window;
+}
+\end{minted}
+ 
