@@ -1,5 +1,5 @@
 %----------------------------------------------------------------------------------------
-%	PACKAGES AND OTHER DOCUMENT CONFIGURATIONS
+%   PACKAGES AND OTHER DOCUMENT CONFIGURATIONS
 %----------------------------------------------------------------------------------------
 \documentclass[11pt, a4paper,oneside]{book}
 
@@ -140,7 +140,7 @@ linewidth=12pt]{nBox}
 {}% Indent amount
 {\small\bf\sffamily\color{ExeColorFont}}% % Theorem head font
 {\;}% Punctuation after theorem head
-{0.25em}% Space after theorem head	
+{0.25em}% Space after theorem head  
 {\small\sffamily\color{ExeColorFont}\thmname{#1}\nobreakspace\thmnumber{#2}% Theorem text (e.g. Exercise 2.1)
 \thmnote{\nobreakspace\the\thm@notefont\sffamily\bfseries\color{black}---\nobreakspace#3.}} % Optional theorem note
 \renewcommand{\qedsymbol}{$\blacksquare$}% Optional qed square
@@ -152,7 +152,7 @@ linewidth=12pt]{nBox}
 {}% Indent amount
 {\small\bf\sffamily\color{ThinkColorFont}}% % Theorem head font
 {\;}% Punctuation after theorem head
-{0.25em}% Space after theorem head	
+{0.25em}% Space after theorem head  
 {\small\sffamily\color{ThinkColorFont}\thmname{#1}\nobreakspace\thmnumber{#2}
 % Theorem text (e.g. Thinking 2.1)
 \thmnote{\nobreakspace\the\thm@notefont\sffamily\bfseries\color{black}---\nobreakspace#3.}} % Optional theorem note
@@ -236,14 +236,668 @@ leftmargin=13pt]{pcodeBox}
 \mainmatter
 \pagestyle{fancy}
 
+\chapter{准备部分}
+\section{用户层TCP}
+
+用户层的TCP编程模型大致如下，对于服务端，调用listen监听端口，
+之后接受客户端的请求，然后就可以收发数据了。结束时，关闭socket。
+
+\begin{minted}[linenos]{c}
+// Server
+socket(...,SOCK_STREAM,0);
+bind(...,&server_address, ...);
+listen(...);
+accept(..., &client_address, ...);
+recv(..., &clientaddr, ...);
+close(...);
+\end{minted}
+
+对于客户端，则调用connect连接服务端，之后便可以收发数据。
+最后关闭socket。
+
+\begin{minted}[linenos]{c}
+socket(...,SOCK_STREAM,0);
+connect();
+send(...,&server_address,...);
+\end{minted}
+
+那么根据我们的需求，我们着重照顾连接的建立、关闭和封包的收发过程。
+
+\section{探寻tcp\_prot，地图get\textasciitilde{}}
+
+一般游戏的主角手中，都会有一张万能的地图。为了搞定TCP，我们自然也是需要
+一张地图的，要不连该去找那个函数看都不知道。很有幸，在\mintinline[linenos]{text}{tcp_ipv4.c}中，
+\mintinline[linenos]{text}{tcp_prot}定义了\mintinline[linenos]{text}{tcp}的各个接口。
+
+\mintinline[linenos]{text}{tcp_prot}的类型为\mintinline[linenos]{text}{struct proto}，是这个结构体是为了抽象各种不同的协议的
+差异性而存在的。类似面向对象中所说的接口(Interface)的概念。这里，我们仅
+保留我们关系的部分。
+
+\begin{minted}[linenos]{c}
+struct proto tcp_prot = {
+        .name                   = "TCP",
+        .owner                  = THIS_MODULE,
+        .close                  = tcp_close,
+        .connect                = tcp_v4_connect,
+        .disconnect             = tcp_disconnect,
+        .accept                 = inet_csk_accept,
+        .destroy                = tcp_v4_destroy_sock,
+        .shutdown               = tcp_shutdown,
+        .setsockopt             = tcp_setsockopt,
+        .getsockopt             = tcp_getsockopt,
+        .recvmsg                = tcp_recvmsg,
+        .sendmsg                = tcp_sendmsg,
+        .sendpage               = tcp_sendpage,
+        .backlog_rcv            = tcp_v4_do_rcv,
+        .get_port               = inet_csk_get_port,
+        .twsk_prot              = &tcp_timewait_sock_ops,
+        .rsk_prot               = &tcp_request_sock_ops,
+};
+\end{minted}
+
+通过名字，我大致筛选出来了这些函数，初步判断这些函数与实验所关心的功能相关。
+对着这张``地图''，就可以顺藤摸瓜，找出些路径了。
+
+先根据参考书《Linux内核源码剖析------TCP/IP实现》中给出的流程图，
+找出所有和需求相关的部分。
+
+首先找三次握手相关的部分：从客户端的角度，发起连接需要调用\mintinline[linenos]{text}{tcp_v4_connect}，
+该函数会进一步调用\mintinline[linenos]{text}{tcp_connect}，在这个函数中，会调用\mintinline[linenos]{text}{tcp_send_syn_data}
+发送SYN报文，并设定超时计时器。第二次握手相关的接收代码在\mintinline[linenos]{text}{tcp_rcv_state_process}中，
+该函数实现了除\mintinline[linenos]{text}{ESTABLISHED}和\mintinline[linenos]{text}{TIME_WAIT}之外所有状态下的接收处理。
+\mintinline[linenos]{text}{tcp_send_ack}函数实现了发送ACK报文。从服务端的角度，则还需实现\mintinline[linenos]{text}{listen}调用和
+\mintinline[linenos]{text}{accept}调用。二者都是服务端建立连接所需要的部分。
+
+封包的封装发送部分，所对应的函数是\mintinline[linenos]{text}{tcp_sendmsg}，实现对数据的复制、切割和发送。
+TCP的重传接口为\mintinline[linenos]{text}{tcp_retransmit_skb}，这里尚有疑问，因为这个函数是负责处理重传的，
+而不是判断是否应当重传的。所以并不明确到底是否该重新实现这一部分。
+
+TCP封包的接收在\mintinline[linenos]{text}{tcp_rcv_established}函数中，根据目前有限的资料看，TCP的滑动窗口机制应该
+在这一部分，更细节的内容待确认。
+
+目前，待重新实现的函数列表是：
+
+\begin{itemize}
+\item
+  tcp\_transmit\_skb
+\item
+  tcp\_rcv\_state\_process
+\item
+  tcp\_connect
+\item
+  tcp\_rcv\_synsent\_state\_process
+\item
+  tcp\_rcv\_established
+\item
+  tcp\_send\_ack
+\item
+  tcp\_sendmsg
+\item
+  tcp\_retransmit\_skb（存疑）
+\item
+  tcp\_rcv\_established
+\item
+  accept和listen（待详细调查）
+\item
+  更多需要等进一步仔细阅读后再做决定
+\end{itemize}
+
+
 \chapter{重要的数据结构}
-		icsk
-		sock\_common
-		sock
-		sk\_buff
-		
+        icsk
+        sock\_common
+        sock
+\section{sk\_buff}
+
+\mintinline{c}{struct sk_buff}这一结构体在各层协议中都会被用到。该结构体存储了
+网络数据报的所有信息。包括各层的头部以及payload，以及必要的各层实现相关的信息。
+
+该结构体的定义较长，需要一点一点分析。结构体的开头为
+\begin{minted}[linenos]{c}
+  union {
+    struct {
+      /* These two members must be first. */
+      struct sk_buff          *next;
+      struct sk_buff          *prev;
+
+      union {
+        ktime_t         tstamp;
+        struct skb_mstamp skb_mstamp;
+      };
+    };
+    struct rb_node  rbnode; /* used in netem & tcp stack */
+  };
+\end{minted}
+可以看到，\mintinline{c}{sk_buff}可以被组织成两种数据结构：
+双向链表和红黑树。且一个\mintinline{c}{sk_buff}不是在双向链表中，就是在
+红黑树中，因此，采用了union来节约空间。next和prev两个域是用于双向链表的结构体，
+而rbnode是红黑树相关的结构。
+
+包的到达/发送时间存放在\mintinline{c}{union {ktime_t tstamp;struct skb_mstamp skb_mstamp;};}中，
+之所以这里有两种不同的时间戳类型，是因为有时候调用\mintinline{c}{ktime_get()}的
+成本太高。因此，内核开发者希望能够在TCP协议栈中实现一个轻量级的微秒级的时间戳。
+\mintinline{c}{struct skb_mstamp}正是结合了\mintinline{c}{local_clock()}和
+\mintinline{c}{jiffies}二者，而实现的一个轻量级的工具。当然，根据内核邮件列表中
+的说法，并不是任何时候都可以用该工具替换调\mintinline{c}{ktime_get()}的。
+因此，在\mintinline{c}{struct sk_buff}结构体中，采用\mintinline{c}{union}的方式
+同时保留了这二者。
+
+在定义完数据结构相关的一些部分后，又定义了如下的结构体
+\begin{minted}[linenos]{c}
+  /* 拥有该sk_buff的套接字的指针 */
+  struct sock             *sk;
+  /* 与该包关联的网络设备 */
+  struct net_device       *dev;
+  /* 控制用的缓冲区，用于存放各层的私有数据 */
+  char                    cb[48] __aligned(8);
+  /* 存放了目的地项的引用计数 */
+  unsigned long           _skb_refdst;
+  /* 析构函数 */
+  void                    (*destructor)(struct sk_buff *skb);
+#ifdef CONFIG_XFRM
+  /* xfrm加密通道 */
+  struct  sec_path        *sp;
+#endif
+#if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
+  /* 保存和bridge相关的信息 */
+  struct nf_bridge_info   *nf_bridge;
+#endif
+\end{minted}
+其中的\mintinline{c}{char cb[48]}比较有意思，各层都使用这个buffer来存放自己
+私有的变量。这里值得注意的是，如果想要跨层传递数据，则需要使用
+\mintinline{c}{skb_clone()}。XFRM则是Linux在2.6版本中引入的一个安全方面的扩展。
+
+之后，又定义了一些长度相关的字段。\mintinline{c}{len}代表buffer中的数据长度（含
+各协议的头部），以及分片长度。而\mintinline{c}{len}代表分片中的数据的长度。
+\mintinline{c}{mac_len}是MAC层头部的长度。\mintinline{c}{hdr_len}是一个
+克隆出来的可写的头部的长度。
+\begin{minted}[linenos]{c}
+unsigned int            len,
+                        data_len;
+__u16                   mac_len,
+                        hdr_len;
+\end{minted}
+
+kmemcheck是内核中的一套内存检测工具。\mintinline{c}{kmemcheck_bitfield_begin}
+和\mintinline{c}{kmemcheck_bitfield_begin}可以用于说明一段内容的起始和终止位置。
+其代码定义如下：
+\begin{minted}[linenos]{c}
+#define kmemcheck_bitfield_begin(name)  \
+        int name##_begin[0];
+
+#define kmemcheck_bitfield_end(name)    \
+        int name##_end[0];
+\end{minted}
+
+通过定义，我们不难看出，这两个宏是用于在代码中产生两个对应于位域的起始地址和终止地址的
+符号的。当然，这两个宏是为kmemcheck的功能服务的。如果没有开启该功能的话，这两个宏的
+定义为空，也即不会产生任何作用。
+\begin{minted}[linenos]{c}
+/* Following fields are _not_ copied in __copy_skb_header()
+* Note that queue_mapping is here mostly to fill a hole.
+*/
+kmemcheck_bitfield_begin(flags1);
+__u16                   queue_mapping; /* 对于多队列设备的队列关系映射 */
+__u8                    cloned:1, /* 是否被克隆 */
+                        nohdr:1, /* 只引用了负载 */
+                        fclone:2, /* skbuff克隆的情况 */
+                        /* peeked表明该包已经被统计过了，无需再次统计 */
+                        peeked:1,
+                        head_frag:1,
+                        xmit_more:1; /* 在队列中有更多的SKB在等待 */
+/* one bit hole */
+kmemcheck_bitfield_end(flags1);
+\end{minted}
+在这段定义中，内核将一系列的标志位命名为了flags1，利用那两个函数可以在生成的代码中插入
+\mintinline{c}{flags1_begin}和\mintinline{c}{flags1_end}两个符号。这样，当有需要
+的时候，可以通过这两个符号找到这一段的起始地址和结束地址。
+
+紧接着是一个包的头部，这一部分再次使用了类似上面的方法，用了两个零长度的数组
+\mintinline{c}{headers_start}和\mintinline{c}{headers_end}来标明头部的起始
+和终止地址。
+\begin{minted}[linenos]{c}
+        /* 在__copy_skb_header()中，只需使用一个memcpy()即可将headers_start/end
+         * 之间的部分克隆一份。
+         */
+        /* private: */
+        __u32                   headers_start[0];
+        /* public: */
+
+/* if you move pkt_type around you also must adapt those constants */
+#ifdef __BIG_ENDIAN_BITFIELD
+#define PKT_TYPE_MAX    (7 << 5)
+#else
+#define PKT_TYPE_MAX    7
+#endif
+#define PKT_TYPE_OFFSET()       offsetof(struct sk_buff, __pkt_type_offset)
+
+        __u8                    __pkt_type_offset[0];
+        /* 该包的类型 */
+        __u8                    pkt_type:3;
+        __u8                    pfmemalloc:1;
+        /* 是否允许本地分片(local fragmentation) */
+        __u8                    ignore_df:1; 
+        /* 表明该skb和连接的关系 */
+        __u8                    nfctinfo:3;
+        /* netfilter包追踪标记 */
+        __u8                    nf_trace:1;
+        /* 驱动（硬件）给出来的checksum */
+        __u8                    ip_summed:2;
+        /* 允许该socket到队列的对应关系发生变更 */
+        __u8                    ooo_okay:1;
+        /* 表明哈希值字段hash是一个典型的4元组的通过传输端口的哈希 */
+        __u8                    l4_hash:1;
+        /* 表明哈希值字段hash是通过软件栈计算出来的 */
+        __u8                    sw_hash:1;
+        /* 表明wifi_acked是否被设置了 */
+        __u8                    wifi_acked_valid:1;
+        /* 表明帧是否在wifi上被确认了 */
+        __u8                    wifi_acked:1;
+        
+        /* 请求NIC将最后的4个字节作为以太网FCS来对待 */
+        __u8                    no_fcs:1;
+        /* Indicates the inner headers are valid in the skbuff. */
+        __u8                    encapsulation:1;
+        __u8                    encap_hdr_csum:1;
+        __u8                    csum_valid:1;
+        __u8                    csum_complete_sw:1;
+        __u8                    csum_level:2;
+        __u8                    csum_bad:1;
+
+#ifdef CONFIG_IPV6_NDISC_NODETYPE
+        __u8                    ndisc_nodetype:2; /* 路由类型（来自链路层） */
+#endif
+        /* 标明该skbuff是否被ipvs拥有 */
+        __u8                    ipvs_property:1;
+        __u8                    inner_protocol_type:1;
+        __u8                    remcsum_offload:1;
+        /* 3 or 5 bit hole */
+
+#ifdef CONFIG_NET_SCHED
+        __u16                   tc_index;       /* traffic control index */
+#ifdef CONFIG_NET_CLS_ACT
+        __u16                   tc_verd;        /* traffic control verdict */
+#endif
+#endif
+
+        union {
+                __wsum          csum; /* 校验码 */
+                struct {
+                        /* 从skb->head开始到应当计算校验码的起始位置的偏移 */
+                        __u16   csum_start; 
+                        /* 从csum_start开始到存储校验码的位置的偏移 */
+                        __u16   csum_offset;
+                };
+        };
+        __u32                   priority; /* 包队列的优先级 */
+        int                     skb_iif; /* 到达的设备的序号 */
+        __u32                   hash; /* 包的哈希值 */
+        __be16                  vlan_proto; /* vlan包装协议 */
+        __u16                   vlan_tci; /* vlan tag控制信息 */
+#if defined(CONFIG_NET_RX_BUSY_POLL) || defined(CONFIG_XPS)
+        union {
+                unsigned int    napi_id; /* 表明该skb来源的NAPI结构体的id */
+                unsigned int    sender_cpu;
+        };
+#endif
+        union {
+#ifdef CONFIG_NETWORK_SECMARK
+                __u32           secmark; /* 安全标记 */
+#endif
+#ifdef CONFIG_NET_SWITCHDEV
+                __u32           offload_fwd_mark; /* fwding offload mark */
+#endif
+        };
+
+        union {
+                __u32           mark; /* 通用的包的标记位 */
+                __u32           reserved_tailroom;
+        };
+
+        union {
+                __be16          inner_protocol; /* 协议（封装好的） */
+                __u8            inner_ipproto;
+        };
+
+        /* 已封装的内部传输层头部 */
+        __u16                   inner_transport_header; 
+        /* 已封装的内部网络层头部 */
+        __u16                   inner_network_header; 
+        /* 已封装的内部链路层头部 */
+        __u16                   inner_mac_header;
+
+        /* 驱动（硬件）给出的包的协议类型 */
+        __be16                  protocol;
+        /* 传输层头部 */
+        __u16                   transport_header;
+        /* 网络层头部 */
+        __u16                   network_header;
+        /* 数据链路层头部 */
+        __u16                   mac_header;
+
+        /* private: */
+        __u32                   headers_end[0];
+\end{minted}
+
+最后是一组是管理相关的字段。其中，\mintinline{c}{head}和\mintinline{c}{end}
+代表被分配的内存的起始位置和终止位置。而\mintinline{c}{data}和\mintinline{c}{tail}
+则是实际数据的起始和终止位置。
+\begin{minted}[linenos]{c}
+/* These elements must be at the end, see alloc_skb() for details.  */
+        sk_buff_data_t          tail;
+        sk_buff_data_t          end;
+        unsigned char           *head,
+                                *data;
+        unsigned int            truesize;
+        atomic_t                users;
+\end{minted}
+\mintinline{c}{users}是引用计数，所以是个原子的。\mintinline{c}{truesize}是
+数据报的真实大小。
+        
 \chapter{TCP建立连接过程}
     \section{TCP主动打开-客户}
+        \subsection{基本流程}
+        主动打开是通过connect系统调用来完成的。这一系统调用最终会调用传输层的\mintinline{c}{tcp_v4_connect}函数。
+        \subsection{tcp\_connect}
+
+经过一系列的判断之后，调用\mintinline[linenos]{text}{tcp_connect}，构造SYN报文并发送。
+\mintinline[linenos]{text}{tcp_connect}函数较短，易于实现，我们先从这里入手。首先整理出该
+函数所调用的其它函数的用法和意义。
+
+\subsubsection{函数依赖分析}
+
+\begin{minted}[linenos]{c}
+/* 初始化一个TCP连接 */
+tcp_connect_init(struct sock *sk);
+/* 结束一个TCP连接 */
+tcp_finish_connect(struct sock *sk, NULL);
+/* 分配一个skb缓存
+ * 其中，gfp是分配内存的模式，这个和Linux的内存管理有关。
+ * sock结构体中的sk_allocation指定了这一模式。
+ * force_schedule根据分析sk_stream_alloc_skb代码，
+ * 可知，这个是用来强制内存分配分配到精确满足大小要求的内存。
+ */
+sk_stream_alloc_skb(struct sock *sk, int size,
+gfp_t gfp, bool force_schedule);
+/* 这个函数用于构造非数据skb的控制位。如果设置了SYN/FIN，则
+ * 自动自增seqno。
+ */
+tcp_init_nondata_skb(struct sk_buff *skb, seq, u8 flags);
+/* 将skb加入到发送队列中。（此处是否和滑动窗口有关？） */ 
+tcp_connect_queue_skb(struct sock *sk, struct sk_buff *skb);
+/* 该函数是真正实现将队列中的TCP包发送出去的功能。
+ * 在发送和重传过程中均会用到该函数。此处所有的SKB是无头部(headerless)的
+ * 在该函数中，我们需要构造TCP头部，然后将包发给IP层，以使得
+ * 该报文能够真正发送出去。
+ */
+tcp_transmit_skb(struct sock *sk, struct sk_buff *skb, int clone_it,
+gfp_t gfp_mask);
+/* 用于SNMP数据统计的，和本次实验的核心应该关系不大。
+ */
+ TCP_INC_STATS(sock_net(sk), TCP_MIB_ACTIVEOPENS);
+/* 重置定时器，what处可以接收的值为ICSK_TIME_RETRANS,ICSK_TIME_EARLY_RETRANS,
+ * ICSK_TIME_PROBE0,ICSK_TIME_LOSS_PROBE。其中when是超时时间，
+ * max_when是系统所允许的最大超时时间。
+ */
+inet_csk_reset_xmit_timer(struct sock *sk, const int what,
+                          unsigned long when,
+                          const unsigned long max_when);
+\end{minted}
+
+\subsubsection{基本思路}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\item
+  初始化TCP连接
+\item
+  如果repair位被置1，那么结束TCP连接
+\item
+  为sk\_buff分配内存，如果发生错误，则返回-ENOBUFS
+\item
+  初始化skb，此时需要将write\_seq自增，同时flags设置为TCPHDR\_SYN
+\item
+  设置retrans\_stamp为tcp\_time\_stamp
+\item
+  将skb加入到发送队列中
+\item
+  实际地发送skb。
+\item
+  将snd\_nxt设置为write\_seq
+\item
+  将pushed\_seq设置为write\_seq
+\item
+  更新统计数据(TCP\_INC\_STATS(sock\_net(sk), TCP\_MIB\_ACTIVEOPENS);)
+\item
+  重置ICSK\_TIME\_RETRANS定时器。超时时间为icsk\_rto。
+\end{enumerate}
+
+\subsection{tcp\_transmit\_skb}
+
+\subsubsection{函数依赖分析}
+
+\begin{minted}[linenos]{c}
+/* 为SYN包计算TCP选项，这个函数中计算出来的还不是最终的格式。
+ */
+static unsigned int tcp_syn_options(struct sock *sk, struct sk_buff *skb,
+                                struct tcp_out_options *opts,
+                                struct tcp_md5sig_key **md5);
+/* 为已经建立连接的套接字计算TCP选项，这个函数中计算出来的还不是最终的格式。
+ */
+static unsigned int tcp_established_options(struct sock *sk, struct sk_buff *skb,
+                                        struct tcp_out_options *opts,
+                                        struct tcp_md5sig_key **md5);
+/* 在skb中为头部流出空间。
+ */
+skb_push(skb, tcp_header_size);
+/* 判断skb是否为一个纯ACK。这里把实现也放出来了。可以看到，纯ACK的包最显著
+ * 的特点是其长度。Linux里通过判断长度直接快速判断出skb是否为一个纯ACK。
+ */
+static inline bool skb_is_tcp_pure_ack(const struct sk_buff *skb)
+{
+        return skb->truesize == 2;
+}
+/* 重置传输层的header的指针？
+ */
+static inline void skb_reset_transport_header(struct sk_buff *skb)
+{
+        skb->transport_header = skb->data - skb->head;
+}
+/* 选择发送窗口的大小
+ */
+tcp_select_window(sk);
+tcp_urg_mode(tp);
+before(tcb->seq, tp->snd_up);
+tcp_options_write((__be32 *)(th + 1), tp, &opts);
+tcp_event_ack_sent(sk, tcp_skb_pcount(skb));
+tcp_event_data_sent(tp, sk);
+queue_xmit();
+tcp_enter_cwr(sk);
+net_xmit_eval(err);
+\end{minted}
+
+\subsection{tcp\_select\_window(struct sk\_buff *skb)}
+这个函数的作用是选择一个新的窗口大小以用于更新\mintinline{c}{tcp_sock}。
+返回的结果根据RFC1323进行了缩放。
+
+\subsubsection{RFC1323——高性能TCP扩展(TCP Extensions for High Performance)}
+这个RFC主要是在考虑高带宽高延迟网络下如何提升TCP的性能。就好像一个又粗又长的管道，
+如果想要管道的利用率高，就要尽可能地把管道填满。但是TCP能够同时发送的东西的上限是
+受到发送窗口的限制的。超过了窗口大小，就必须等待ACK确认才可以继续发送。
+
+然而，在TCP头部中，只有16位的一个域用于说明窗口大小。也就是说，窗口大小最大只能
+达到$2^{16}=64K字节$。为了解决这一问题，RFC1323新增了一个TCP选项，用于放大窗口的
+大小。该选项的值代表将原窗口大小放大2的幂倍。
+
+个人认为这个设计很有好。采用2的幂来缩放可以很大程度地扩展窗口的大小，因为2的幂
+增长得很快。而且可以通过位移运算来实现缩放，性能上也很好。
+
+\subsubsection{代码分析}
+\begin{minted}[linenos]{c}
+static u16 tcp_select_window(struct sock *sk)
+{
+        struct tcp_sock *tp = tcp_sk(sk);
+        u32 old_win = tp->rcv_wnd;
+        u32 cur_win = tcp_receive_window(tp);
+        u32 new_win = __tcp_select_window(sk);
+        /* old_win是接收方窗口的大小。
+         * cur_win当前的接收窗口大小。
+         * new_win是新选择出来的窗口大小。
+         */
+
+        /* 当新窗口的大小小于当前窗口的大小时，不能缩减窗口大小。
+         * 这是IEEE强烈不建议的一种行为。
+         */
+        if (new_win < cur_win) {
+                /* Danger Will Robinson!
+                 * Don't update rcv_wup/rcv_wnd here or else
+                 * we will not be able to advertise a zero
+                 * window in time.  --DaveM
+                 *
+                 * Relax Will Robinson.
+                 */
+                if (new_win == 0)
+                        NET_INC_STATS(sock_net(sk),
+                                      LINUX_MIB_TCPWANTZEROWINDOWADV);
+                /* 当计算出来的新窗口小于当前窗口时，将新窗口设置为大于cur_win
+                 * 的1<<tp->rx_opt.rcv_wscale的整数倍。
+                 */
+                new_win = ALIGN(cur_win, 1 << tp->rx_opt.rcv_wscale);
+        }
+        /* 将当前的接收窗口设置为新的窗口大小。*/
+        tp->rcv_wnd = new_win;
+        tp->rcv_wup = tp->rcv_nxt;
+
+        /* 判断当前窗口未越界。*/
+        if (!tp->rx_opt.rcv_wscale && sysctl_tcp_workaround_signed_windows)
+                new_win = min(new_win, MAX_TCP_WINDOW);
+        else
+                new_win = min(new_win, (65535U << tp->rx_opt.rcv_wscale));
+
+        /* RFC1323 缩放窗口大小。这里之所以是右移，是因为此时的new_win是
+         * 窗口的真正大小。所以返回时需要返回正常的可以放在16位整型中的窗口大小。
+         * 所以需要右移。
+         */
+        new_win >>= tp->rx_opt.rcv_wscale;
+
+        /* If we advertise zero window, disable fast path. */
+        if (new_win == 0) {
+                tp->pred_flags = 0;
+                if (old_win)
+                        NET_INC_STATS(sock_net(sk),
+                                      LINUX_MIB_TCPTOZEROWINDOWADV);
+        } else if (old_win == 0) {
+                NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPFROMZEROWINDOWADV);
+        }
+
+        return new_win;
+}
+\end{minted}
+
+在这个过程中，还调用了\mintinline{c}{__tcp_select_window(sk)}来计算新的窗口大小。
+该函数会尝试增加窗口的大小，但是有两个限制条件：
+
+\begin{enumerate}
+  \item 窗口不能收缩(RFC793)
+  \item 每个socket所能使用的内存是有限制的。
+\end{enumerate}
+
+RFC 1122中说：
+\begin{quote}
+"the suggested [SWS] avoidance algorithm for the receiver is to keep
+RECV.NEXT + RCV.WIN fixed until:
+RCV.BUFF - RCV.USER - RCV.WINDOW >= min(1/2 RCV.BUFF, MSS)"
+
+推荐的用于接收方的糊涂窗口综合症的避免算法是保持recv.next+rcv.win不变，直到：
+RCV.BUFF - RCV.USER - RCV.WINDOW >= min(1/2 RCV.BUFF, MSS)
+\end{quote}
+
+换句话说，就是除非缓存的大小多出来至少一个MSS那么多字节，否则不要增长窗口右边界
+的大小。
+
+然而，根据Linux注释中的说法，被推荐的这个算法会破坏头预测(header prediction)，
+因为头预测会假定\mintinline{c}{th->window}不变。严格地说，
+保持\mintinline{c}{th->window}固定不变会违背接收方的用于防止糊涂窗口综合症的准则。
+在这种规则下，一个单字节的包的流会引发窗口的右边界总是提前一个字节。
+当然，如果发送方实现了预防糊涂窗口综合症的方法，那么就不会出现问题。
+
+Linux的TCP部分的作者们参考了BSD的实现方法。BSD在这方面的做法是是，
+如果空闲空间小于最大可用空间的$\frac{1}{4}$，且空闲空间
+小于mss的$\frac{1}{2}$，那么就把窗口设置为0。否则，只是单纯地阻止窗口缩小，
+或者阻止窗口大于最大可表示的范围(the largest representable value)。
+BSD的方法似乎“意外地”使得窗口基本上都是MSS的整倍数。且很多情况下窗口大小都是
+固定不变的。因此，Linux采用强制窗口为MSS的整倍数，以获得相似的行为。
+
+\begin{minted}[linenos]{c}
+u32 __tcp_select_window(struct sock *sk)
+{
+        struct inet_connection_sock *icsk = inet_csk(sk);
+        struct tcp_sock *tp = tcp_sk(sk);
+        int mss = icsk->icsk_ack.rcv_mss;
+        int free_space = tcp_space(sk);
+        int allowed_space = tcp_full_space(sk);
+        int full_space = min_t(int, tp->window_clamp, allowed_space);
+        int window;
+
+        /* 如果mss超过了总共的空间大小，那么把mss限制在允许的空间范围内。 */
+        if (mss > full_space)
+                mss = full_space;
+
+        if (free_space < (full_space >> 1)) {
+                /* 当空闲空间小于允许空间的一半时。 */
+                icsk->icsk_ack.quick = 0;
+
+                if (tcp_under_memory_pressure(sk))
+                        tp->rcv_ssthresh = min(tp->rcv_ssthresh,
+                                               4U * tp->advmss);
+
+                /* free_space有可能成为新的窗口的大小，因此，需要考虑
+                 * 窗口扩展的影响。
+                 */
+                free_space = round_down(free_space, 1 << tp->rx_opt.rcv_wscale);
+
+                /* 如果空闲空间小于mss的大小，或者低于最大允许空间的的1/16，那么，
+                 * 返回0窗口。否则，tcp_clamp_window()会增长接收缓存到tcp_rmem[2]。
+                 * 新进入的数据会由于内醋限制而被丢弃。对于较大的窗口，单纯地探测mss的
+                 * 大小以宣告0窗口有些太晚了（可能会超过限制）。
+                 */
+                if (free_space < (allowed_space >> 4) || free_space < mss)
+                        return 0;
+        }
+
+        if (free_space > tp->rcv_ssthresh)
+                free_space = tp->rcv_ssthresh;
+
+        /* 这里处理一个例外情况，就是如果开启了窗口缩放，那么就没法对齐mss了。
+         * 所以就保持窗口是对齐2的幂的。
+         */
+        window = tp->rcv_wnd;
+        if (tp->rx_opt.rcv_wscale) {
+                window = free_space;
+
+                /* Advertise enough space so that it won't get scaled away.
+                 * Import case: prevent zero window announcement if
+                 * 1<<rcv_wscale > mss.
+                 */
+                if (((window >> tp->rx_opt.rcv_wscale) << tp->rx_opt.rcv_wscale) != window)
+                        window = (((window >> tp->rx_opt.rcv_wscale) + 1)
+                                  << tp->rx_opt.rcv_wscale);
+        } else {
+                /* 如果内存条件允许，那么就把窗口设置为mss的整倍数。
+                 * 或者如果free_space > 当前窗口大小加上全部允许的空间的一半，
+                 * 那么，就将窗口大小设置为free_space
+                 */
+                if (window <= free_space - mss || window > free_space)
+                        window = (free_space / mss) * mss;
+                else if (mss == full_space &&
+                         free_space > window + (full_space >> 1))
+                        window = free_space;
+        }
+
+        return window;
+}
+\end{minted}
+
     \section{TCP被动打开-服务器}
         \subsection{基本流程}
             tcp想要被动打开，就必须得先进行listen调用\textbf{(什么时候被调用呢？)}。经过listen调用之后，系统内部其实创建了一个监听套接字，专门负责监听是否有数据发来，而不会负责传输数据。
@@ -254,9 +908,9 @@ leftmargin=13pt]{pcodeBox}
 
             如果你有socket编程经验，那么你一定能想到，那就是在accept系统调用时，返回了一个fd，所以说，是你在accept 时，你三次握手完成后建立的sock才绑定了一个 fd。
         \subsection{第一次握手：接受SYN段}
-			\subsubsection{正常的首次握手函数调用概览}
-			            
-			\subsubsection{LISTEN状态处理接收到的TCP段}
+            \subsubsection{正常的首次握手函数调用概览}
+                        
+            \subsubsection{LISTEN状态处理接收到的TCP段}
                 在进行第一次握手的时候，TCP一般处于LISTEN状态。传输控制块接收处理的段都由tcp\_v4\_do\_rcv来处理。该函数位于/net/ipv4/tcp\_ipv4.c中。该函数会根据不同的TCP状态进行不同的处理，这里我们只是讨论第一次握手的函数处理过程。
 \begin{minted}[linenos]{C}
 /* The socket must have it's spinlock held when we get
@@ -269,51 +923,51 @@ leftmargin=13pt]{pcodeBox}
  */
 int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 {
-	struct sock *rsk;
+    struct sock *rsk;
 
-	/*省略无关代码*/
+    /*省略无关代码*/
 
-	if (tcp_checksum_complete(skb))
-		goto csum_err;
+    if (tcp_checksum_complete(skb))
+        goto csum_err;
 
-	if (sk->sk_state == TCP_LISTEN) {
-		struct sock *nsk = tcp_v4_cookie_check(sk, skb);
+    if (sk->sk_state == TCP_LISTEN) {
+        struct sock *nsk = tcp_v4_cookie_check(sk, skb);
 
-		if (!nsk)
-			goto discard;
-		if (nsk != sk) {
-			sock_rps_save_rxhash(nsk, skb);
-			sk_mark_napi_id(nsk, skb);
-			if (tcp_child_process(sk, nsk, skb)) {
-				rsk = nsk;
-				goto reset;
-			}
-			return 0;
-		}
-	} else
-		sock_rps_save_rxhash(sk, skb);
+        if (!nsk)
+            goto discard;
+        if (nsk != sk) {
+            sock_rps_save_rxhash(nsk, skb);
+            sk_mark_napi_id(nsk, skb);
+            if (tcp_child_process(sk, nsk, skb)) {
+                rsk = nsk;
+                goto reset;
+            }
+            return 0;
+        }
+    } else
+        sock_rps_save_rxhash(sk, skb);
 
-	if (tcp_rcv_state_process(sk, skb)) {
-		rsk = sk;
-		goto reset;
-	}
-	return 0;
+    if (tcp_rcv_state_process(sk, skb)) {
+        rsk = sk;
+        goto reset;
+    }
+    return 0;
 
 reset:
-	tcp_v4_send_reset(rsk, skb);
+    tcp_v4_send_reset(rsk, skb);
 discard:
-	kfree_skb(skb);
-	/* Be careful here. If this function gets more complicated and
-	 * gcc suffers from register pressure on the x86, sk (in \%ebx)
-	 * might be destroyed here. This current version compiles correctly,
-	 * but you have been warned.
-	 */
-	return 0;
+    kfree_skb(skb);
+    /* Be careful here. If this function gets more complicated and
+     * gcc suffers from register pressure on the x86, sk (in \%ebx)
+     * might be destroyed here. This current version compiles correctly,
+     * but you have been warned.
+     */
+    return 0;
 
 csum_err:
-	TCP_INC_STATS_BH(sock_net(sk), TCP_MIB_CSUMERRORS);
-	TCP_INC_STATS_BH(sock_net(sk), TCP_MIB_INERRS);
-	goto discard;
+    TCP_INC_STATS_BH(sock_net(sk), TCP_MIB_CSUMERRORS);
+    TCP_INC_STATS_BH(sock_net(sk), TCP_MIB_INERRS);
+    goto discard;
 }
 \end{minted}
 
@@ -324,18 +978,18 @@ csum_err:
 
                 最后，程序会继续调用tcp\_rcv\_state\_process函数处理接收到的SYN段。
             
-	\subsubsection{LISTEN状态处理请求--tcp\_v4\_cookie\_check}
+    \subsubsection{LISTEN状态处理请求--tcp\_v4\_cookie\_check}
                 该函数如下：
 \begin{minted}[linenos]{C}
 static struct sock *tcp_v4_cookie_check(struct sock *sk, struct sk_buff *skb)
 {
 #ifdef CONFIG_SYN_COOKIES
-	const struct tcphdr *th = tcp_hdr(skb);
+    const struct tcphdr *th = tcp_hdr(skb);
 
-	if (!th->syn)
-		sk = cookie_v4_check(sk, skb);
+    if (!th->syn)
+        sk = cookie_v4_check(sk, skb);
 #endif
-	return sk;
+    return sk;
 }
 \end{minted}
 
@@ -347,116 +1001,140 @@ static struct sock *tcp_v4_cookie_check(struct sock *sk, struct sk_buff *skb)
 
 \begin{minted}[linenos]{C}
 /*
- *	This function implements the receiving procedure of RFC 793 for
- *	all states except ESTABLISHED and TIME_WAIT.
- *	It's called from both tcp_v4_rcv and tcp_v6_rcv and should be
- *	address independent.
+ *  This function implements the receiving procedure of RFC 793 for
+ *  all states except ESTABLISHED and TIME_WAIT.
+ *  It's called from both tcp_v4_rcv and tcp_v6_rcv and should be
+ *  address independent.
  */
 
 int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 {
-	struct tcp_sock *tp = tcp_sk(sk);
-	struct inet_connection_sock *icsk = inet_csk(sk);
-	const struct tcphdr *th = tcp_hdr(skb);
-	struct request_sock *req;
-	int queued = 0;
-	bool acceptable;
+    struct tcp_sock *tp = tcp_sk(sk);
+    struct inet_connection_sock *icsk = inet_csk(sk);
+    const struct tcphdr *th = tcp_hdr(skb);
+    struct request_sock *req;
+    int queued = 0;
+    bool acceptable;
 
-	tp->rx_opt.saw_tstamp = 0;
+    tp->rx_opt.saw_tstamp = 0;
 
-	switch (sk->sk_state) {
-	/*省略无关代码*/
+    switch (sk->sk_state) {
+    /*省略无关代码*/
 
-	case TCP_LISTEN:
-		if (th->ack)
-			return 1;
+    case TCP_LISTEN:
+        if (th->ack)
+            return 1;
 
-		if (th->rst)
-			goto discard;
+        if (th->rst)
+            goto discard;
 
-		if (th->syn) {
-			if (th->fin)
-				goto discard;
-			if (icsk->icsk_af_ops->conn_request(sk, skb) < 0)
-				return 1;
+        if (th->syn) {
+            if (th->fin)
+                goto discard;
+            if (icsk->icsk_af_ops->conn_request(sk, skb) < 0)
+                return 1;
 
-			/* Now we have several options: In theory there is
-			 * nothing else in the frame. KA9Q has an option to
-			 * send data with the syn, BSD accepts data with the
-			 * syn up to the [to be] advertised window and
-			 * Solaris 2.1 gives you a protocol error. For now
-			 * we just ignore it, that fits the spec precisely
-			 * and avoids incompatibilities. It would be nice in
-			 * future to drop through and process the data.
-			 *
-			 * Now that TTCP is starting to be used we ought to
-			 * queue this data.
-			 * But, this leaves one open to an easy denial of
-			 * service attack, and SYN cookies can't defend
-			 * against this problem. So, we drop the data
-			 * in the interest of security over speed unless
-			 * it's still in use.
-			 */
-			kfree_skb(skb);
-			return 0;
-		}
-		goto discard;
+            /* Now we have several options: In theory there is
+             * nothing else in the frame. KA9Q has an option to
+             * send data with the syn, BSD accepts data with the
+             * syn up to the [to be] advertised window and
+             * Solaris 2.1 gives you a protocol error. For now
+             * we just ignore it, that fits the spec precisely
+             * and avoids incompatibilities. It would be nice in
+             * future to drop through and process the data.
+             *
+             * Now that TTCP is starting to be used we ought to
+             * queue this data.
+             * But, this leaves one open to an easy denial of
+             * service attack, and SYN cookies can't defend
+             * against this problem. So, we drop the data
+             * in the interest of security over speed unless
+             * it's still in use.
+             */
+            kfree_skb(skb);
+            return 0;
+        }
+        goto discard;
 
-		/*省略无关代码*/
+        /*省略无关代码*/
 discard:
-		__kfree_skb(skb);
-	}
-	return 0;
+        __kfree_skb(skb);
+    }
+    return 0;
 }
 \end{minted}
 
                 显然，所接收到的包的ack、rst、fin字段都不为1，故而执行？？行程序。这时开始进行连接检查，判断是否可以允许连接。\textbf{经过不断查找}，我们可以发现最终会掉用tcp\_v4\_conn\_request进行处理。如果syn段合法，内核就会为该连接请求创建连接请求块，并且保存相应的信息。否则，就会返回1,原函数会发送reset给客户端表明连接请求失败。
 
-				当然，如果收到的包的ack字段为1,那么由于此时链接还未建立，故该包无效，返回1,并且调用该函数的函数会发送reset包给对方。如果收到的是rst字段或者既有fin又有syn的字段，那就直接销毁，并且释放内存。
+                当然，如果收到的包的ack字段为1,那么由于此时链接还未建立，故该包无效，返回1,并且调用该函数的函数会发送reset包给对方。如果收到的是rst字段或者既有fin又有syn的字段，那就直接销毁，并且释放内存。
             \subsubsection{连接请求处理--tcp\_v4\_conn\_request  tcp\_conn\_request}
-				该函数位于/net/ipv4/tcp\_ipv4/tcp\_ipv4.c中，该函数如下：
+                该函数位于/net/ipv4/tcp\_ipv4/tcp\_ipv4.c中，该函数如下：
 \begin{minted}[linenos]{C}
 int tcp_v4_conn_request(struct sock *sk, struct sk_buff *skb)
 {
-	/* Never answer to SYNs send to broadcast or multicast */
-	if (skb_rtable(skb)->rt_flags & (RTCF_BROADCAST | RTCF_MULTICAST))
-		goto drop;
+    /* Never answer to SYNs send to broadcast or multicast */
+    if (skb_rtable(skb)->rt_flags & (RTCF_BROADCAST | RTCF_MULTICAST))
+        goto drop;
 
-	return tcp_conn_request(&tcp_request_sock_ops,
-				&tcp_request_sock_ipv4_ops, sk, skb);
+    return tcp_conn_request(&tcp_request_sock_ops,
+                &tcp_request_sock_ipv4_ops, sk, skb);
 
 drop:
-	NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_LISTENDROPS);
-	return 0;
+    NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_LISTENDROPS);
+    return 0;
 }
 \end{minted}
-				首先，如果一个SYN段是要被发送到广播地址和组播地址，则直接drop掉，然后返回0。否则的话，就继续调用tcp\_conn\_request进行连接处理。
+                首先，如果一个SYN段是要被发送到广播地址和组播地址，则直接drop掉，然后返回0。否则的话，就继续调用tcp\_conn\_request进行连接处理。
 \begin{minted}[linenos]{C}
 int tcp_conn_request(struct request_sock_ops *rsk_ops,
-		     const struct tcp_request_sock_ops *af_ops,
-		     struct sock *sk, struct sk_buff *skb)
+             const struct tcp_request_sock_ops *af_ops,
+             struct sock *sk, struct sk_buff *skb)
 {
-	struct tcp_fastopen_cookie foc = { .len = -1 };
-	__u32 isn = TCP_SKB_CB(skb)->tcp_tw_isn;
-	struct tcp_options_received tmp_opt;
-	struct tcp_sock *tp = tcp_sk(sk);
-	struct sock *fastopen_sk = NULL;
-	struct dst_entry *dst = NULL;
-	struct request_sock *req;
-	bool want_cookie = false;
-	struct flowi fl;
+    struct tcp_fastopen_cookie foc = { .len = -1 };
+    __u32 isn = TCP_SKB_CB(skb)->tcp_tw_isn;
+    struct tcp_options_received tmp_opt;
+    struct tcp_sock *tp = tcp_sk(sk);
+    struct sock *fastopen_sk = NULL;
+    struct dst_entry *dst = NULL;
+    struct request_sock *req;
+    bool want_cookie = false;
+    struct flowi fl;
 
-	/* TW buckets are converted to open requests without
-	 * limitations, they conserve resources and peer is
-	 * evidently real one.
-	 */
-	if ((sysctl_tcp_syncookies == 2 ||
-	     inet_csk_reqsk_queue_is_full(sk)) && !isn) {
-		want_cookie = tcp_syn_flood_action(sk, skb, rsk_ops->slab_name);
-		if (!want_cookie)
-			goto drop;
-	}
+    /* TW buckets are converted to open requests without
+     * limitations, they conserve resources and peer is
+     * evidently real one.
+     */
+    if ((sysctl_tcp_syncookies == 2 ||
+         inet_csk_reqsk_queue_is_full(sk)) && !isn) {
+        want_cookie = tcp_syn_flood_action(sk, skb, rsk_ops->slab_name);
+        if (!want_cookie)
+            goto drop;
+    }
 \end{minted}
-				首先，前面？？？如果SYN请求队列已满并且isn为0,需要查看是否
-		
+                首先，前面？？？如果SYN请求队列已满并且isn为0,需要查看是否
+        
+        
+\chapter{辅助函数}
+有些小函数是用于辅助一些很底层的功能的，这里单独列出来。
+
+\section{字节序}
+CPU分为大端和小端两种。而在网络传输的过程中，大小端的不一致会带来问题。
+因此，网络协议中对于字节序都有明确规定。一般采用大端序。
+
+Linux中，对于这一部分的支持放在了\mintinline{text}{include/linux/byteorder/generic.h}
+中。而实现，则交由体系结构相关的代码来完成。
+
+\begin{minted}[linenos]{c}
+/* 下面的函数用于进行对16位整型或者32位整型在网络传输格式和本地格式之间的转换。
+ */
+ntohl(__u32 x)
+ntohs(__u16 x)
+htonl(__u32 x)
+htons(__u16 x)
+\end{minted}
+
+上面函数的命名规则是末尾的l代表32位，s代表16位。n代表network，h代表host。
+根据命名规则，不难知道函数的用途。比如htons就是从本地的格式转换的网络传输用的格式，
+转换的是16位整数。
+
 \end{document}
