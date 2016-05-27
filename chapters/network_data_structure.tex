@@ -582,7 +582,78 @@ struct inet_connection_sock {
     u64           icsk_ca_priv[64 / sizeof(u64)];
 #define ICSK_CA_PRIV_SIZE      (8 * sizeof(u64))
 };
-\end{minted}    
+\end{minted}
+
+\subsection{sockaddr和sockaddr\_in}
+\label{subsec:sockaddr_and_sockaddr_in}
+\mintinline{c}{sockaddr}用于描述一个地址。
+\begin{minted}[linenos]{c}
+/* include/linux/socket.h */
+struct sockaddr {
+        sa_family_t     sa_family;      /* 地址所属的协议族, AF_xxx       */
+        char            sa_data[14];    /* 在协议下的地址 */
+};
+\end{minted}
+可以看出\mintinline{c}{sockaddr}是一个较为通用的描述方法。可以支持任意的网络层协议。
+那么具体到我们的情况，就是IP网络。下面是IP网络下，该结构体的定义。
+
+\begin{minted}[linenos]{c}
+/* include/uapi/linux/in.h
+ * 该结构体用于描述一个Internet (IP) 套接字的地址 
+ */
+struct sockaddr_in {
+  __kernel_sa_family_t  sin_family;     /* 这里和sockaddr是对应的，填写IP网络 */
+  __be16                sin_port;       /* 端口号                           */
+  struct in_addr        sin_addr;       /* Internet 地址                    */
+
+  /* 填充位，为了将sockaddr_in填充到和sockaddr一样长 */
+  unsigned char         __pad[__SOCK_SIZE__ - sizeof(short int) -
+                        sizeof(unsigned short int) - sizeof(struct in_addr)];
+};
+\end{minted}
+\mintinline{c}{sockaddr}的使用方法是在需要的地方直接强制转型成相应网络的结构体。
+因此，需要让二者一样大。这就是为何\mintinline{c}{sockaddr_in}要加填充位的原因。
+
+\subsection{ip\_options}
+\label{subsec:ip_options}
+
+\begin{minted}[linenos]{c}
+/** struct ip_options - IP Options
+ *
+ * @faddr - 保存的第一跳地址
+ * @nexthop - 保存在LSRR和SSRR的下一跳地址
+ * @is_strictroute - 严格的源路由
+ * @srr_is_hit - 包目标地址命中
+ * @is_changed - IP校验和不合法
+ * @rr_needaddr - 需要记录出口设备的地址
+ * @ts_needtime - 需要记录时间戳
+ * @ts_needaddr - 需要记录出口设备的地址
+ */
+struct ip_options {
+        __be32          faddr;
+        __be32          nexthop;
+        unsigned char   optlen;
+        unsigned char   srr;
+        unsigned char   rr;
+        unsigned char   ts;
+        unsigned char   is_strictroute:1,
+                        srr_is_hit:1,
+                        is_changed:1,
+                        rr_needaddr:1,
+                        ts_needtime:1,
+                        ts_needaddr:1;
+        unsigned char   router_alert;
+        unsigned char   cipso;
+        unsigned char   __pad2;
+        unsigned char   __data[0];
+};
+
+struct ip_options_rcu {
+        struct rcu_head rcu;
+        struct ip_options opt;
+};
+\end{minted}
+
 %----------------------------------------------------------------------------------------
 %                   Structre about Router
 %----------------------------------------------------------------------------------------
