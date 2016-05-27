@@ -625,4 +625,256 @@ struct sk_buff *tcp_make_synack(const struct sock *sk, struct dst_entry *dst,
 }
 \end{minted}
 
-				最后判断是否需要md5哈希值，如果需要的话，就进行添加。\textbf{what does it mean in the middle?},然后返回生成包含SYN+ACK段的skb。			
+				最后判断是否需要md5哈希值，如果需要的话，就进行添加。\textbf{what does it mean in the middle?},然后返回生成包含SYN+ACK段的skb。		
+
+		\subsection{第三次握手：接收ACK段}
+
+				在服务器第二次我受的最后启动了建立连接定时器，等待客户端最后一次握手的ACK段。			
+				\subsubsection{第三次握手函数调用关系图}
+				\subsubsection{tcp\_v4\_do\_rcv}
+\begin{minted}[linenos]{C}
+/* The socket must have it's spinlock held when we get
+ * here, unless it is a TCP_LISTEN socket.
+ *
+ * We have a potential double-lock case here, so even when
+ * doing backlog processing we use the BH locking scheme.
+ * This is because we cannot sleep with the original spinlock
+ * held.
+ */
+int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
+{
+	struct sock *rsk;
+
+	/**省略无关代码**/
+
+	if (tcp_checksum_complete(skb))
+		goto csum_err;
+
+	if (sk->sk_state == TCP_LISTEN) {
+		struct sock *nsk = tcp_v4_cookie_check(sk, skb);
+
+		if (!nsk)
+			goto discard;
+		if (nsk != sk) {
+			sock_rps_save_rxhash(nsk, skb);
+			sk_mark_napi_id(nsk, skb);
+			if (tcp_child_process(sk, nsk, skb)) {
+				rsk = nsk;
+				goto reset;
+			}
+			return 0;
+		}
+	} else
+		sock_rps_save_rxhash(sk, skb);
+	/**省略无关代码**/
+reset:
+	tcp_v4_send_reset(rsk, skb);
+discard:
+	kfree_skb(skb);
+	/* Be careful here. If this function gets more complicated and
+	 * gcc suffers from register pressure on the x86, sk (in %ebx)
+	 * might be destroyed here. This current version compiles correctly,
+	 * but you have been warned.
+	 */
+	return 0;
+
+csum_err:
+	TCP_INC_STATS_BH(sock_net(sk), TCP_MIB_CSUMERRORS);
+	TCP_INC_STATS_BH(sock_net(sk), TCP_MIB_INERRS);
+	goto discard;
+}
+\end{minted}
+					在服务器最后一次握手的时候，其实传输控制块仍然处于LISTEN状态，但是这时候cookie检查得到的传输控制块已经不是侦听传输控制快了，故而会执行\mintinline{C}{tcp_child_process}来初始化子传输控制块。如果初始化失败的话（返回值非零），就会给客户端发送RST段进行复位。
+
+				\subsubsection{tcp\_v4\_cookie\_check}
+
+\begin{minted}[linenos]{C}
+static struct sock *tcp_v4_cookie_check(struct sock *sk, struct sk_buff *skb)
+{
+#ifdef CONFIG_SYN_COOKIES
+    const struct tcphdr *th = tcp_hdr(skb);
+
+    if (!th->syn)
+        sk = cookie_v4_check(sk, skb);
+#endif
+    return sk;
+}
+\end{minted}
+
+					在现在的Linux内核中一般都会定义\mintinline{C}{CONFIG_SYN_COOKIES}宏，此时在第三次握手阶段，并不是 syn包,内核就会执行\mintinline{C}{cookie_v4_check}。在这个函数中，服务器会将客户端的ACK序列号减去1,得到cookie比较值，然后将客户端的IP地址，客户端端口，服务器IP地址和服务器端口，接收到的TCP序列好以及其它一些安全数值等要素进行hash运算后，与该cookie比较值比较，如果相等，则直接完成三次握手，此时不必查看该连接是否属于请求连接队列。
+
+				\subsubsection{tcp\_child\_process}
+
+					子传输控制块开始处理TCP段。
+\begin{minted}[linenos]{C}
+/*
+ * Queue segment on the new socket if the new socket is active,
+ * otherwise we just shortcircuit this and continue with
+ * the new socket.
+ *
+ * For the vast majority of cases child->sk_state will be TCP_SYN_RECV
+ * when entering. But other states are possible due to a race condition
+ * where after __inet_lookup_established() fails but before the listener
+ * locked is obtained, other packets cause the same connection to
+ * be created.
+ */
+
+int tcp_child_process(struct sock *parent, struct sock *child,
+		      struct sk_buff *skb)
+{
+	int ret = 0;
+	int state = child->sk_state;
+
+	tcp_sk(child)->segs_in += max_t(u16, 1, skb_shinfo(skb)->gso_segs);
+	if (!sock_owned_by_user(child)) {
+		ret = tcp_rcv_state_process(child, skb);
+		/* Wakeup parent, send SIGIO */
+		if (state == TCP_SYN_RECV && child->sk_state != state)
+			parent->sk_data_ready(parent);
+	} else {
+		/* Alas, it is possible again, because we do lookup
+		 * in main socket hash table and lock on listening
+		 * socket does not protect us more.
+		 */
+		__sk_add_backlog(child, skb);
+	}
+
+	bh_unlock_sock(child);
+	sock_put(child);
+	return ret;
+}
+\end{minted}
+
+				该函数位于\mintinline{C}{tcp_minisocks.c}中。
+
+				首先，如果此时刚刚创建的新的子传输控制块没有被用户进程占用，则根据作为第三次握手的ACK段，调用\mintinline{C}{tcp_rcv_state_process}继续对子传输控制块做初始化。否则的话，只能将其加入后备队列中，等空闲时再进行处理。虽然这种情况出现的概率小，但是也是有可能发生的。
+
+				\subsubsection{tcp\_rcv\_state\_process}
+
+					该函数用来处理ESTABLISHED和\mintinline{C}{TIME_WAIT}状态以外的TCP段，这里处理\mintinline{C}{SYN_RECV}状态。
+\begin{minted}[linenos]{C}
+	acceptable = tcp_ack(sk, skb, FLAG_SLOWPATH |
+				      FLAG_UPDATE_TS_RECENT) > 0;
+\end{minted}
+
+					首先对收到的ACK段进行处理判断是否正确接收，如果正确接收就会发送返回非零值。
+
+\begin{minted}[linenos]{C}
+	switch (sk->sk_state) {
+		case TCP_SYN_RECV:
+			if (!acceptable)
+				return 1;
+
+			if (!tp->srtt_us)
+				tcp_synack_rtt_meas(sk, req);
+
+			/* Once we leave TCP_SYN_RECV, we no longer need req
+			 * so release it.
+			 */
+			if (req) {
+				tp->total_retrans = req->num_retrans;
+				reqsk_fastopen_remove(sk, req, false);
+			} else {
+				/* Make sure socket is routed, for correct metrics. */
+				icsk->icsk_af_ops->rebuild_header(sk);
+				tcp_init_congestion_control(sk);
+
+				tcp_mtup_init(sk);
+				tp->copied_seq = tp->rcv_nxt;
+				tcp_init_buffer_space(sk);
+			}
+			smp_mb();
+			tcp_set_state(sk, TCP_ESTABLISHED);
+			sk->sk_state_change(sk);
+\end{minted}
+
+					进行一系列的初始化，开启相应拥塞控制等，并且将TCP的状态置为ESTABLISHED。
+
+\begin{minted}[linenos]{C}
+
+			/* Note, that this wakeup is only for marginal crossed SYN case.
+			 * Passively open sockets are not waked up, because
+			 * sk->sk_sleep == NULL and sk->sk_socket == NULL.
+			 */
+			if (sk->sk_socket)
+				sk_wake_async(sk, SOCK_WAKE_IO, POLL_OUT);
+\end{minted}
+
+					发信号给那些将通过该套接口发送数据的进程，通知它们套接口目前已经可以发送数据了。
+
+\begin{minted}[linenos]{C}
+			tp->snd_una = TCP_SKB_CB(skb)->ack_seq;
+			tp->snd_wnd = ntohs(th->window) << tp->rx_opt.snd_wscale;
+			tcp_init_wl(tp, TCP_SKB_CB(skb)->seq);
+
+			if (tp->rx_opt.tstamp_ok)
+				tp->advmss -= TCPOLEN_TSTAMP_ALIGNED;
+\end{minted}
+
+					初始化传输控制块的各个字段，对时间戳进行处理。
+
+\begin{minted}[linenos]{C}
+			if (req) {
+				/* Re-arm the timer because data may have been sent out.
+				 * This is similar to the regular data transmission case
+				 * when new data has just been ack'ed.
+				 *
+				 * (TFO) - we could try to be more aggressive and
+				 * retransmitting any data sooner based on when they
+				 * are sent out.
+				 */
+				tcp_rearm_rto(sk);
+			} else
+				tcp_init_metrics(sk);
+\end{minted}
+
+					为该套接口初始化路由。
+
+\begin{minted}[linenos]{C}
+			tcp_update_pacing_rate(sk);
+
+			/* Prevent spurious tcp_cwnd_restart() on first data packet */
+			tp->lsndtime = tcp_time_stamp;
+
+			tcp_initialize_rcv_mss(sk);
+			tcp_fast_path_on(tp);
+			break;
+\end{minted}
+
+				更新最近一次的发送数据报的时间，初始化与路径MTU有关的成员，并计算有关TCP首部预测的标志。
+
+\begin{minted}[linenos]{C}
+	/* step 6: check the URG bit */
+	tcp_urg(sk, skb, th);
+\end{minted}
+
+				检测带外数据标志位。
+
+\begin{minted}[linenos]{C}
+	/* step 7: process the segment text */
+	switch (sk->sk_state) {
+		/**省略无关代码**/
+		case TCP_ESTABLISHED:
+			tcp_data_queue(sk, skb);
+			queued = 1;
+			break;
+	}
+\end{minted}
+
+				对已接收到的TCP段排队，在建立连接阶段一般不会收到TCP段。
+
+\begin{minted}[linenos]{C}
+	/* tcp_data could move socket to TIME-WAIT */
+	if (sk->sk_state != TCP_CLOSE) {
+		tcp_data_snd_check(sk);
+		tcp_ack_snd_check(sk);
+	}
+
+	if (!queued) {
+discard:
+		__kfree_skb(skb);
+	}
+	return 0;
+\end{minted}
+
+				显然此时状态不为CLOSE，故而就回去检测是否数据和ACK要发送。其次，根据queue标志来确定是否释放接收到的TCP段，如果接收到的TCP段已添加到接收队列中，则不释放。
