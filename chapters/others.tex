@@ -45,37 +45,21 @@ static void tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags)
 }
 \end{minted}
 
+\subsection{before()和after()}
+在一些需要判断序号前后的地方出现了\mintinline{c}{before()}和\mintinline{c}{after()}
+这两个函数。这两个函数的定义如下
 \begin{minted}[linenos]{c}
-/* 初始化一个TCP连接 */
-tcp_connect_init(struct sock *sk);
-/* 结束一个TCP连接 */
-tcp_finish_connect(struct sock *sk, NULL);
-/* 分配一个skb缓存
- * 其中，gfp是分配内存的模式，这个和Linux的内存管理有关。
- * sock结构体中的sk_allocation指定了这一模式。
- * force_schedule根据分析sk_stream_alloc_skb代码，
- * 可知，这个是用来强制内存分配分配到精确满足大小要求的内存。
+/* include/net/tcp.h
+ * 比较两个无符号32位整数
  */
-sk_stream_alloc_skb(struct sock *sk, int size,
-gfp_t gfp, bool force_schedule);
-/* 将skb加入到发送队列中。（此处是否和滑动窗口有关？） */ 
-tcp_connect_queue_skb(struct sock *sk, struct sk_buff *skb);
-/* 该函数是真正实现将队列中的TCP包发送出去的功能。
- * 在发送和重传过程中均会用到该函数。此处所有的SKB是无头部(headerless)的
- * 在该函数中，我们需要构造TCP头部，然后将包发给IP层，以使得
- * 该报文能够真正发送出去。
- */
-tcp_transmit_skb(struct sock *sk, struct sk_buff *skb, int clone_it,
-gfp_t gfp_mask);
-
-/* 重置定时器，what处可以接收的值为ICSK_TIME_RETRANS,ICSK_TIME_EARLY_RETRANS,
- * ICSK_TIME_PROBE0,ICSK_TIME_LOSS_PROBE。其中when是超时时间，
- * max_when是系统所允许的最大超时时间。
- */
-inet_csk_reset_xmit_timer(struct sock *sk, const int what,
-                          unsigned long when,
-                          const unsigned long max_when);
+static inline bool before(__u32 seq1, __u32 seq2)
+{
+        return (__s32)(seq1-seq2) < 0;
+}
+#define after(seq2, seq1)       before(seq1, seq2)
 \end{minted}
+可以看到，这两个函数实际上就是将两个数直接相减。之所以要单独弄个函数应该是为了避免强制转型
+造成影响。序号都是32位无符号整型。
 
 \section{辅助函数}
 有些小函数是用于辅助一些很底层的功能的，这里单独列出来。
