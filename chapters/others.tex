@@ -2,16 +2,45 @@
 
 \minitoc
 
-\section{SKB相关函数和宏}
+\section{SKB}
+	\subsection{\mintinline{C}{skb_transport_header}}
+		
+		该函数位于\mintinline{C}{/include/linux/skbuff.h}中，其功能是根据skb得到其tcphdr的偏移。
+\begin{minted}[linenos]{C}
+static inline unsigned char *skb_transport_header(const struct sk_buff *skb)
+{
+	return skb->head + skb->transport_header;
+}
+\end{minted}
 
-\section{TCP相关函数和宏}
-    \mintinline{c}{tcp_hdr}
+		其中，\mintinline{C}{skb->head}指向缓存区的头部。\mintinline{C}{skb->transport_heade}为传输层相对于缓冲区头部的偏移。
 
-    \mintinline{c}{TCP_INC_STATS_BH}
+\section{Inet}
+	\subsection{\mintinline{C}{inet_csk}}
+		该函数位于\mintinline{C}{/include/net/inet_connection_sock.h}中，主要的目的就是进行类型转换，将一个sock类型的变量转为\mintinline{C}{inet_connection_sock}。\textbf{问题待解决。}
 
-    \mintinline{c}{rcu_read_unlock} 出现在\mintinline{c}{tcp_make_synack}中于MD5相关的部分。
-    
-    \mintinline{c}{net_xmit_eval}   定时器？？
+\begin{minted}[linenos]{C}
+static inline struct inet_connection_sock *inet_csk(const struct sock *sk)
+{
+	return (struct inet_connection_sock *)sk;
+}
+\end{minted}
+
+\section{TCP层}
+	\subsection{\mintinline{C}{tcp_hdr}}
+
+		该函数位于\mintinline{C}{/include/linux/tcp.h}中，主要目的就是将\mintinline{C}{sk_buff}类型的变量转化为\mintinline{C}{tcphdr};
+\begin{minted}[linenos]{C}
+static inline struct tcphdr *tcp_hdr(const struct sk_buff *skb)
+{
+	return (struct tcphdr *)skb_transport_header(skb);
+}
+\end{minted}
+	\mintinline{c}{TCP_INC_STATS_BH}
+
+	\mintinline{c}{rcu_read_unlock} 出现在\mintinline{c}{tcp_make_synack}中于MD5相关的部分。
+	
+	\mintinline{c}{net_xmit_eval}	定时器？？
 \subsection{tcp\_init\_nondata\_skb}
 该函数提供了初始化不含数据的skb的功能。函数原型如下：
 \begin{minted}[linenos]{c}
@@ -79,34 +108,7 @@ inet_csk_reset_xmit_timer(struct sock *sk, const int what,
 
 \section{辅助函数}
 有些小函数是用于辅助一些很底层的功能的，这里单独列出来。
-
-\subsection{分支预测优化}
-现代处理器均为流水线结构。而分支语句可能导致流水线断流。因此，很多处理器均有分支预测的功能。
-然而，分支预测失败所导致的惩罚也是相对高昂的。为了提升性能，Linux的很多分支判断中都使用了
-\mintinline{c}{likely()}和\mintinline{c}{unlikely()}这组宏定义来人工指示编译器，哪些
-分支出现的概率极高，以便编译器进行优化。
-
-这里有两种定义，一种是开启了分支语句分析相关的选项时，内核会采用下面的一种定义
-\begin{minted}[linenos]{c}
-/* include/linux/compiler.h
- * 采用__builtin_constant_p(x)来忽略常量表达式。
- */
-# ifndef likely
-#  define likely(x)     (__builtin_constant_p(x) ? !!(x) : __branch_check__(x, 1))
-# endif
-# ifndef unlikely
-#  define unlikely(x)   (__builtin_constant_p(x) ? !!(x) : __branch_check__(x, 0))
-# endif
-\end{minted}
-在该定义下，\mintinline{c}{__branch_check__}用于跟踪分支结果并更新统计数据。
-
-如果不开启该选项，则定义得较为简单：
-\begin{minted}[linenos]{c}
-# define likely(x)      __builtin_expect(!!(x), 1)
-# define unlikely(x)    __builtin_expect(!!(x), 0)
-\end{minted}
-其中\mintinline{c}{__builtin_expect}是GCC的内置函数，用于指示编译器，该条件语句最可能的结果是什么。
-
+                unlikely
 \subsection{字节序}
 CPU分为大端和小端两种。而在网络传输的过程中，大小端的不一致会带来问题。
 因此，网络协议中对于字节序都有明确规定。一般采用大端序。

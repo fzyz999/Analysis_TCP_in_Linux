@@ -1,10 +1,10 @@
 \section{TCP被动打开-服务器}
         \subsection{基本流程}
-            tcp想要被动打开，就必须得先进行listen调用\textbf{(什么时候被调用呢？)}。经过listen调用之后，系统内部其实创建了一个监听套接字，专门负责监听是否有数据发来，而不会负责传输数据。
+            tcp想要被动打开，就必须得先进行listen调用。而对于一台主机，它如果想要作为服务器，它会在什么时候进行listen调用呢？不难想到，它在启动某个需要TCP连接的高级应用程序的时候，就会执行listen调用。经过listen调用之后，系统内部其实创建了一个监听套接字，专门负责监听是否有数据发来，而不会负责传输数据。
 
-            当客户端的第一个syn包到达服务器时，其实linux 内核并不会创建sock结构体，而是创建一个轻量级的request\_sock 结构体，里面能唯一确定某个客户端发来的syn的信息，接着就发送syn、ack给客户端。
+            当客户端的第一个syn包到达服务器时，其实linux 内核并不会创建sock结构体，而是创建一个轻量级的\mintinline{C}{request_sock}结构体，里面能唯一确定某个客户端发来的syn的信息，接着就发送syn、ack给客户端。
 
-            客户端一般就接着回ack。这时，我们能从ack中，取出信息，在一堆request\_sock匹配，看看是否之前有这个ack对应的syn发过来过。如果之前发过syn，那么现在我们就能找到request\_sock，也就是客户端syn时建立的request\_sock。 此时，我们内核才会为这条流创建sock结构体，毕竟，sock结构体比request\_sock大的多，犯不着三次握手都没建立起来我就建立一个大的结构体。当三次握手建立以后，内核就建立一个相对完整的sock，所谓相对完整，其实也是不完整。因为如果你写过socket程序你就知道，所谓的真正完整，是建立socket，而不是sock （socket 结构体中有一个指针sock * sk，显然sock只是socket的一个子集）。那么我们什么时候才会创建完整的socket，或者换句话说，什么时候使得sock 结构体和文件系统关联从而绑定一个fd，用这个fd就可以用来传输数据呢？所谓fd(file descriptor)，一般是BSD Socket的用法，用在Unix/Linux 系统上。在Unix/Linux系统下，一个socket句柄，可以看做是一个文件，在socket上收发数据，相当于对一个文件进行读写，所以一个socket句柄，通常也用表示文件句柄的fd来表示。
+            客户端一般就接着回ack。这时，我们能从ack中，取出信息，在一堆\mintinline{C}{request_sock}匹配，看看是否之前有这个ack对应的syn发过来过。如果之前发过syn，那么现在我们就能找到\mintinline{C}{request_sock}，也就是客户端syn时建立的\mintinline{C}{request_sock}。 此时，我们内核才会为这条流创建sock结构体，毕竟，sock结构体比\mintinline{C}{request_sock}大的多，犯不着三次握手都没建立起来我就建立一个大的结构体。当三次握手建立以后，内核就建立一个相对完整的sock。所谓相对完整，其实也是不完整。因为如果写过socket程序，你就知道，所谓的真正完整，是建立socket，而不是sock(socket结构体中有一个指针sock *sk，显然sock只是socket的一个子集）。那么我们什么时候才会创建完整的socket，或者换句话说，什么时候使得sock 结构体和文件系统关联从而绑定一个fd，用这个fd就可以用来传输数据呢？所谓fd(file descriptor)，一般是BSD Socket的用法，用在Unix/Linux 系统上。在Unix/Linux系统下，一个socket句柄，可以看做是一个文件，在socket上收发数据，相当于对一个文件进行读写，所以一个socket句柄，通常也用表示文件句柄的fd来表示。
 
             如果你有socket编程经验，那么你一定能想到，那就是在accept系统调用时，返回了一个fd，所以说，是你在accept 时，你三次握手完成后建立的sock才绑定了一个 fd。
         \subsection{第一次握手：接受SYN段}
@@ -13,8 +13,8 @@
                     \centering
                     \includegraphics[width=\textwidth]  {images/The First Shake Hand of Server.png}
                 \end{figure}       
-            \subsubsection{LISTEN状态处理接收到的TCP段}
-                在进行第一次握手的时候，TCP一般处于LISTEN状态。传输控制块接收处理的段都由tcp\_v4\_do\_rcv来处理。该函数位于/net/ipv4/tcp\_ipv4.c中。该函数会根据不同的TCP状态进行不同的处理，这里我们只是讨论第一次握手的函数处理过程。
+            \subsubsection{\mintinline{C}{tcp_v4_do_rcv}}
+                在进行第一次握手的时候，TCP必然处于LISTEN状态。传输控制块接收处理的段都由\mintinline{C}{tcp_v4_do_rcv}来处理。该函数位于/net/ipv4/tcp\_ipv4.c中。该函数会根据不同的TCP状态进行不同的处理，这里我们只是讨论服务器第一次握手的函数处理过程。
 \begin{minted}[linenos]{C}
 /* The socket must have it's spinlock held when we get
  * here, unless it is a TCP_LISTEN socket.
@@ -74,14 +74,13 @@ csum_err:
 }
 \end{minted}
 
-                \textbf{函数的参数的意思。表格显示（函数头，函数功能，函数参数及相关简单解释），代码行数放在前面。}
                 首先，程序先基于伪首部累加和进行全包的校验和，判断包是否传输正确。
 
                 其次，程序会进行相应的cookie检查。
 
-                最后，程序会继续调用tcp\_rcv\_state\_process函数处理接收到的SYN段。
+                最后，程序会继续调用\mintinline{C}{tcp_rcv_state_process}函数处理接收到的SYN段。
             
-    \subsubsection{LISTEN状态处理请求--tcp\_v4\_cookie\_check}
+            \subsubsection{\mintinline{C}{tcp_v4_cookie_check}}
                 该函数如下：
 \begin{minted}[linenos]{C}
 static struct sock *tcp_v4_cookie_check(struct sock *sk, struct sk_buff *skb)
@@ -96,11 +95,9 @@ static struct sock *tcp_v4_cookie_check(struct sock *sk, struct sk_buff *skb)
 }
 \end{minted}
 
-                可以看出如果系统定义了CONFIG\_SYN\_COOKIES宏的话，并且当前并不是syn包，内核就会继续进行cookie\_v4\_check，否则返回sk。显然对于第一次握手的时候，接收到的确实是syn包，故而不会进行检查。而是直接返回了sk。对于cookie\_v4\_check函数，当内存不足时，就返回NULL，否则就返回sk。
-            \subsubsection{LISTEN状态处理SYN段--tcp\_rcv\_state\_process}
-                该函数位于/net/ipv4/tcp\_input.c中。函数的简要介绍如下：
-
-                与第一次握手相关的代码如下：
+                一般情况下，当前linux内核都会定义\mintinline{C}{CONFIG_SYN_COOKIES}宏的，显然对于第一次握手的时候，接收到的确实是syn包，故而直接返回了sk。
+            \subsubsection{\mintinline{C}{tcp_rcv_state_process}}
+                该函数位于\mintinline{C}{/net/ipv4/tcp_input.c}中。与第一次握手相关的代码如下：
 
 \begin{minted}[linenos]{C}
 /*
