@@ -353,7 +353,7 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
                 tp->rcv_wup = TCP_SKB_CB(skb)->seq + 1;
 \end{minted}
 对于SYN和SYN/ACK段是不进行窗口放大的。关于RFC1323窗口放大相关的内容，我们会在
-\ref{subsubsec:rfc1323}中详细讨论。接下来手动设定了窗口缩放相关的参数，
+\ref{subsec:rfc1323}中详细讨论。接下来手动设定了窗口缩放相关的参数，
 使得缩放不生效。
 \begin{minted}[linenos]{c}
                 /* RFC1323: The window in SYN & SYN/ACK segments is
@@ -619,20 +619,7 @@ net_xmit_eval(err);
 
 \subsection{tcp\_select\_window(struct sk\_buff *skb)}
 这个函数的作用是选择一个新的窗口大小以用于更新\mintinline{c}{tcp_sock}。
-返回的结果根据RFC1323进行了缩放。
-
-\subsubsection{RFC1323——高性能TCP扩展(TCP Extensions for High Performance)}
-\label{subsubsec:rfc1323}
-这个RFC主要是在考虑高带宽高延迟网络下如何提升TCP的性能。就好像一个又粗又长的管道，
-如果想要管道的利用率高，就要尽可能地把管道填满。但是TCP能够同时发送的东西的上限是
-受到发送窗口的限制的。超过了窗口大小，就必须等待ACK确认才可以继续发送。
-
-然而，在TCP头部中，只有16位的一个域用于说明窗口大小。也就是说，窗口大小最大只能
-达到$2^{16}=64K字节$。为了解决这一问题，RFC1323新增了一个TCP选项，用于放大窗口的
-大小。该选项的值代表将原窗口大小放大2的幂倍。
-
-个人认为这个设计很有好。采用2的幂来缩放可以很大程度地扩展窗口的大小，因为2的幂
-增长得很快。而且可以通过位移运算来实现缩放，性能上也很好。
+返回的结果根据RFC1323（详见\ref{subsec:rfc1323}）进行了缩放。
 
 \subsubsection{代码分析}
 \begin{minted}[linenos]{c}
