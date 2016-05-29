@@ -41,3 +41,46 @@ struct {
 
 			当然我们需要注意，机器是分大端和小端存储的。因此，我们在选择外部定义数据的情况下爱，必须仔细考虑那一端优先的问题。同时，字段不是数组，并且没有地址，因此不能对它们使用\mintinline{C}{&}运算符。	
 	\section{操作系统}
+	\section{GNU C}
+		\subsection{\mintinline{C}{__attribute__}}
+			GNU C的一大特色就是\mintinline{C}{__attribute__}机制。\mintinline{C}{__attribute__}可以设置函数属性（Function Attribute）、变量属性（Variable Attribute）和类型属性（Type Attribute）。
+
+			\mintinline{C}{__attribute__}的书写特征是：\mintinline{C}{__attribute__}前后都有两个下划线，并切后面会紧跟一对原括弧，括弧里面是相应的\mintinline{C}{__attribute__}参数。
+
+			\mintinline{C}{__attribute__}的语法格式为：\mintinline{C}{__attribute__}((attribute-list))
+
+			\mintinline{C}{__attribute__}的位置约束为：放于声明的尾部“；”之前。
+			参考博客：http://www.cnblogs.com/astwish/p/3460618.html
+			关键字\mintinline{C}{__attribute__}也可以对结构体（struct）或共用体（union）进行属性设置。大致有六个参数值可以被设定，即：aligned, packed, \mintinline{C}{transparent_union}, unused, deprecated 和 \mintinline{C}{may_alias} 。
+
+			在使用\mintinline{C}{__attribute__}参数时，你也可以在参数的前后都加上两个下划线，例如，使用\mintinline{C}{__aligned__}而不是aligned ，这样，你就可以在相应的头文件里使用它而不用关心头文件里是否有重名的宏定义。aligned (alignment)该属性设定一个指定大小的对齐格式（以字节 为单位）。		
+
+			\subsubsection{设置变量属性}
+				下面的声明将强制编译器确保（尽它所能）变量类型为\mintinline{C}{int32_t}的变量在分配空间时采用8字节对齐方式。
+
+\begin{minted}[linenos]{C}
+typedef int int32_t __attribute__ ((aligned(8)));
+\end{minted}
+			\subsubsection{设置类型属性}
+
+				下面的声明将强制编译器确保（尽它所能）变量类型为struct S的变量在分配空间时采用8字节对齐方式。				
+\begin{minted}[linenos]{C}
+struct S {
+	short b[3];
+} __attribute__ ((aligned (8)));
+\end{minted}
+
+			如上所述，你可以手动指定对齐的格式，同样，你也可以使用默认的对齐方式。如果aligned后面不紧跟一个指定的数字值，那么编译器将依据你的目标机器情况使用最大最有益的对齐方式。例如：
+
+\begin{minted}[linenos]{C}
+struct S {
+	short b[3];
+} __attribute__ ((aligned));
+\end{minted}
+
+			这里，如果sizeof（short）的大小为2（byte），那么，S 的大小就为6 。取一个2 的次方值，使得该值大于等于6 ，则该值为8，所以编译器将设置S类型的对齐方式为8字节。aligned 属性使被设置的对象占用更多的空间，相反的，使用packed 可以减小对象占用的空间。
+			需要注意的是，attribute 属性的效力与你的连接器也有关，如果你的连接器最大只支持16 字节对齐，那么你此时定义32 字节对齐也是无济于事的。
+
+			\subsubsection{设置函数属性}
+
+
