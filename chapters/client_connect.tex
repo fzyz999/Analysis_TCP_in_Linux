@@ -523,9 +523,59 @@ reset_and_undo:
 }
 \end{minted}
 
-\subsection{tcp\_transmit\_skb}
+\subsection{第三次握手——发送ACK包}
+\label{subsec:send_ack}
 
-\subsubsection{函数依赖分析}
+\subsubsection{tcp\_send\_ack}
+\label{subsubsec:tcp_send_ack}
+在\ref{subsec:recv_synack}分析的代码的最后，我们看到它调用了\mintinline{c}{tcp_send_ack()}来发送ACK包，
+从而实现第三次握手。
+
+\begin{minted}[linenos]{c}
+/* 该函数用于发送ACK，并更新窗口的大小 */
+void tcp_send_ack(struct sock *sk)
+{
+        struct sk_buff *buff;
+
+        /* 如果当前的套接字已经被关闭了，那么直接返回。 */
+        if (sk->sk_state == TCP_CLOSE)
+                return;
+
+        tcp_ca_event(sk, CA_EVENT_NON_DELAYED_ACK);
+
+        /* We are not putting this on the write queue, so
+         * tcp_transmit_skb() will set the ownership to this
+         * sock.
+         * 为数据包分配空间
+         */
+        buff = alloc_skb(MAX_TCP_HEADER, sk_gfp_atomic(sk, GFP_ATOMIC));
+        if (!buff) {
+                inet_csk_schedule_ack(sk);
+                inet_csk(sk)->icsk_ack.ato = TCP_ATO_MIN;
+                inet_csk_reset_xmit_timer(sk, ICSK_TIME_DACK,
+                                          TCP_DELACK_MAX, TCP_RTO_MAX);
+                return;
+        }
+
+        /* 初始化ACK包 */
+        skb_reserve(buff, MAX_TCP_HEADER);
+        tcp_init_nondata_skb(buff, tcp_acceptable_seq(sk), TCPHDR_ACK);
+
+        /* We do not want pure acks influencing TCP Small Queues or fq/pacing
+         * too much.
+         * SKB_TRUESIZE(max(1 .. 66, MAX_TCP_HEADER)) is unfortunately ~784
+         * We also avoid tcp_wfree() overhead (cache line miss accessing
+         * tp->tsq_flags) by using regular sock_wfree()
+         */
+        skb_set_tcp_pure_ack(buff);
+
+        /* 添加时间戳并发送ACK包 */
+        skb_mstamp_get(&buff->skb_mstamp);
+        tcp_transmit_skb(sk, buff, 0, sk_gfp_atomic(sk, GFP_ATOMIC));
+}
+\end{minted}
+
+\subsection{tcp\_transmit\_skb}
 
 \begin{minted}[linenos]{c}
 /* 为SYN包计算TCP选项，这个函数中计算出来的还不是最终的格式。
