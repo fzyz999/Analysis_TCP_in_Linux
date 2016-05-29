@@ -709,7 +709,31 @@ struct ip_options_rcu {
         __sum16 check;
         __be16  urg_ptr;
     };
-\end{minted}    
+\end{minted}
+
+        \subsection{\mintinline{C}{tcp_options_received}}
+
+		该结构位于\mintinline{C}{/include/linux/tcp.h}中，其主要表述TCP头部的选项字段。
+
+\begin{minted}[linenos]{C}
+struct tcp_options_received {
+/*  PAWS/RTTM data  */
+    long    ts_recent_stamp;  /* Time we stored ts_recent (for aging)        */
+    u32 ts_recent;            /* Time stamp to echo next                     */
+    u32 rcv_tsval;            /* Time stamp value                            */
+    u32 rcv_tsecr;            /* Time stamp echo reply                       */
+    u16     saw_tstamp : 1,   /* Saw TIMESTAMP on last packet                */
+        tstamp_ok : 1,        /* TIMESTAMP seen on SYN packet                */
+        dsack : 1,            /* D-SACK is scheduled                         */
+        wscale_ok : 1,        /* Wscale seen on SYN packet                   */
+        sack_ok : 4,          /* SACK seen on SYN packet                     */
+        snd_wscale : 4,       /* Window scaling received from sender         */
+        rcv_wscale : 4;       /* Window scaling to send to receiver          */
+    u8  num_sacks;            /* Number of SACK blocks                       */
+    u16 user_mss;             /* mss requested by user in ioctl              */
+    u16 mss_clamp;            /* Maximal mss, negotiated at connection setup */
+};
+\end{minted}            
         \subsection{\mintinline{C}{tcp_sock}}
 
             该数据结构位于\mintinline{C}{/include/linux/tcp.h}中。
@@ -938,16 +962,16 @@ struct tcp_sock {
 struct tcp_request_sock {
     struct inet_request_sock    req;
     const struct tcp_request_sock_ops *af_specific;
-    struct skb_mstamp       snt_synack; /* first SYNACK sent time */
+    struct skb_mstamp       snt_synack; 			/* first SYNACK sent time */
     bool                tfo_listener;
     u32             txhash;
     u32             rcv_isn;
     u32             snt_isn;
-    u32             last_oow_ack_time; /* last SYNACK */
-    u32             rcv_nxt; /* the ack # by SYNACK. For
-                          * FastOpen it's the seq#
-                          * after data-in-SYN.
-                          */
+    u32             last_oow_ack_time; 				/* last SYNACK */
+    u32             rcv_nxt; 						/* the ack # by SYNACK. For
+                          								* FastOpen it's the seq#
+                         								* after data-in-SYN.
+                          							*/
 };
 \end{minted}
         \subsection{TCP协议控制块--tcp\_sock}
