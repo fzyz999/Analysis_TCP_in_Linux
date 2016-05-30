@@ -122,7 +122,8 @@ struct sock_common {
 };
 \end{minted}
         \subsection{sock}
-            sock结构是比较通用的网络层描述块，构成传输控制块的基础，与具体的协议族无关。它描述了各协议族的公共信息，因此不能直接作为传输层控制块来使用。不同协议族的传输层在使用该结构的时候都会对其进行拓展，来适合各自的传输特性，例如，inet\_sock结构由sock结构及其它特性组成，构成了IPV4协议族传输控制块的基础。结构如下：
+            sock结构是比较通用的网络层描述块，构成传输控制块的基础，与具体的协议族无关。它描述了各协议族的公共信息，因此不能直接作为传输层控制块来使用。不同协议族的传输层在使用该结构的时候都会对其进行拓展，来适合各自的传输特性。例如，\mintinline{C}{inet_sock}结构由sock结构及其它特性组成，构成了IPV4协议族传输控制块的基础。结构如下：
+
 \begin{minted}[linenos]{C}
 /**
   * struct sock - network layer representation of sockets
@@ -391,6 +392,7 @@ struct request_sock {
     struct rb_node  rbnode; /* used in netem and tcp stack */
   };
 \end{minted}
+
 可以看到，\mintinline{c}{sk_buff}可以被组织成两种数据结构：
 双向链表和红黑树。且一个\mintinline{c}{sk_buff}不是在双向链表中，就是在
 红黑树中，因此，采用了union来节约空间。next和prev两个域是用于双向链表的结构体，
@@ -426,6 +428,7 @@ struct request_sock {
   struct nf_bridge_info   *nf_bridge;
 #endif
 \end{minted}
+
 其中的\mintinline{c}{char cb[48]}比较有意思，各层都使用这个buffer来存放自己
 私有的变量。这里值得注意的是，如果想要跨层传递数据，则需要使用
 \mintinline{c}{skb_clone()}。XFRM则是Linux在2.6版本中引入的一个安全方面的扩展。
@@ -441,8 +444,8 @@ __u16                   mac_len,
                         hdr_len;
 \end{minted}
 
-kmemcheck是内核中的一套内存检测工具。\mintinline{c}{kmemcheck_bitfield_begin}
-和\mintinline{c}{kmemcheck_bitfield_begin}可以用于说明一段内容的起始和终止位置。
+kmemcheck是内核中的一套内存检测工具。kmemcheck\_bitfield\_begin
+和kmemcheck\_bitfield\_end可以用于说明一段内容的起始和终止位置。
 其代码定义如下：
 \begin{minted}[linenos]{c}
 #define kmemcheck_bitfield_begin(name)  \
@@ -460,17 +463,17 @@ kmemcheck是内核中的一套内存检测工具。\mintinline{c}{kmemcheck_bitf
 * Note that queue_mapping is here mostly to fill a hole.
 */
 kmemcheck_bitfield_begin(flags1);
-__u16                   queue_mapping; /* 对于多队列设备的队列关系映射 */
-__u8                    cloned:1, /* 是否被克隆 */
-                        nohdr:1, /* 只引用了负载 */
-                        fclone:2, /* skbuff克隆的情况 */
-                        /* peeked表明该包已经被统计过了，无需再次统计 */
-                        peeked:1,
-                        head_frag:1,
-                        xmit_more:1; /* 在队列中有更多的SKB在等待 */
+__u16       queue_mapping; 		/* 对于多队列设备的队列关系映射 				*/
+__u8        cloned:1, 			/* 是否被克隆 								*/
+            nohdr:1, 			/* 只引用了负载 								*/
+            fclone:2, 			/* skbuff克隆的情况 							*/
+            peeked:1,			/* peeked表明该包已经被统计过了，无需再次统计 */
+            head_frag:1,
+            xmit_more:1; 		/* 在队列中有更多的SKB在等待 					*/
 /* one bit hole */
 kmemcheck_bitfield_end(flags1);
 \end{minted}
+
 在这段定义中，内核将一系列的标志位命名为了flags1，利用那两个函数可以在生成的代码中插入
 \mintinline{c}{flags1_begin}和\mintinline{c}{flags1_end}两个符号。这样，当有需要
 的时候，可以通过这两个符号找到这一段的起始地址和结束地址。
@@ -775,7 +778,7 @@ struct inet_connection_sock {
 };
 \end{minted}
 
-\subsection{sockaddr和sockaddr\_in}
+\subsection{\mintinline{C}{sockaddr & sockaddr_in}}
 \label{subsec:sockaddr_and_sockaddr_in}
 \mintinline{c}{sockaddr}用于描述一个地址。
 \begin{minted}[linenos]{c}
@@ -785,6 +788,7 @@ struct sockaddr {
         char            sa_data[14];    /* 在协议下的地址 */
 };
 \end{minted}
+
 可以看出\mintinline{c}{sockaddr}是一个较为通用的描述方法。可以支持任意的网络层协议。
 那么具体到我们的情况，就是IP网络。下面是IP网络下，该结构体的定义。
 
@@ -802,6 +806,7 @@ struct sockaddr_in {
                         sizeof(unsigned short int) - sizeof(struct in_addr)];
 };
 \end{minted}
+
 \mintinline{c}{sockaddr}的使用方法是在需要的地方直接强制转型成相应网络的结构体。
 因此，需要让二者一样大。这就是为何\mintinline{c}{sockaddr_in}要加填充位的原因。
 
@@ -1303,226 +1308,7 @@ struct tcp_request_sock {
                           							*/
 };
 \end{minted}
-        \subsection{TCP协议控制块--tcp\_sock}
-\begin{minted}[linenos]{C}
-struct tcp_sock {
-    /* inet_connection_sock has to be the first member of tcp_sock */
-    struct inet_connection_sock inet_conn;
-    u16 tcp_header_len; /* Bytes of tcp header to send      */
-    u16 gso_segs;   /* Max number of segs per GSO packet    */
-
-/*
- *  Header prediction flags
- *  0x5?10 << 16 + snd_wnd in net byte order
- */
-    __be32  pred_flags;
-
-/*
- *  RFC793 variables by their proper names. This means you can
- *  read the code and the spec side by side (and laugh ...)
- *  See RFC793 and RFC1122. The RFC writes these in capitals.
- */
-    u64 bytes_received; /* RFC4898 tcpEStatsAppHCThruOctetsReceived
-                 * sum(delta(rcv_nxt)), or how many bytes
-                 * were acked.
-                 */
-    u32 segs_in;    /* RFC4898 tcpEStatsPerfSegsIn
-                 * total number of segments in.
-                 */
-    u32 rcv_nxt;    /* What we want to receive next     */
-    u32 copied_seq; /* Head of yet unread data      */
-    u32 rcv_wup;    /* rcv_nxt on last window update sent   */
-    u32 snd_nxt;    /* Next sequence we send        */
-    u32 segs_out;   /* RFC4898 tcpEStatsPerfSegsOut
-                 * The total number of segments sent.
-                 */
-    u64 bytes_acked;    /* RFC4898 tcpEStatsAppHCThruOctetsAcked
-                 * sum(delta(snd_una)), or how many bytes
-                 * were acked.
-                 */
-    struct u64_stats_sync syncp; /* protects 64bit vars (cf tcp_get_info()) */
-
-    u32 snd_una;    /* First byte we want an ack for    */
-    u32 snd_sml;    /* Last byte of the most recently transmitted small packet */
-    u32 rcv_tstamp; /* timestamp of last received ACK (for keepalives) */
-    u32 lsndtime;   /* timestamp of last sent data packet (for restart window) */
-    u32 last_oow_ack_time;  /* timestamp of last out-of-window ACK */
-
-    u32 tsoffset;   /* timestamp offset */
-
-    struct list_head tsq_node; /* anchor in tsq_tasklet.head list */
-    unsigned long   tsq_flags;
-
-    /* Data for direct copy to user */
-    struct {
-        struct sk_buff_head prequeue;
-        struct task_struct  *task;
-        struct msghdr       *msg;
-        int         memory;
-        int         len;
-    } ucopy;
-
-    u32 snd_wl1;    /* Sequence for window update       */
-    u32 snd_wnd;    /* The window we expect to receive  */
-    u32 max_window; /* Maximal window ever seen from peer   */
-    u32 mss_cache;  /* Cached effective mss, not including SACKS */
-
-    u32 window_clamp;   /* Maximal window to advertise      */
-    u32 rcv_ssthresh;   /* Current window clamp         */
-
-    /* Information of the most recently (s)acked skb */
-    struct tcp_rack {
-        struct skb_mstamp mstamp; /* (Re)sent time of the skb */
-        u8 advanced; /* mstamp advanced since last lost marking */
-        u8 reord;    /* reordering detected */
-    } rack;
-    u16 advmss;     /* Advertised MSS           */
-    u8  unused;
-    u8  nonagle     : 4,/* Disable Nagle algorithm?             */
-        thin_lto    : 1,/* Use linear timeouts for thin streams */
-        thin_dupack : 1,/* Fast retransmit on first dupack      */
-        repair      : 1,
-        frto        : 1;/* F-RTO (RFC5682) activated in CA_Loss */
-    u8  repair_queue;
-    u8  do_early_retrans:1,/* Enable RFC5827 early-retransmit  */
-        syn_data:1, /* SYN includes data */
-        syn_fastopen:1, /* SYN includes Fast Open option */
-        syn_fastopen_exp:1,/* SYN includes Fast Open exp. option */
-        syn_data_acked:1,/* data in SYN is acked by SYN-ACK */
-        save_syn:1, /* Save headers of SYN packet */
-        is_cwnd_limited:1;/* forward progress limited by snd_cwnd? */
-    u32 tlp_high_seq;   /* snd_nxt at the time of TLP retransmit. */
-
-/* RTT measurement */
-    u32 srtt_us;    /* smoothed round trip time << 3 in usecs */
-    u32 mdev_us;    /* medium deviation         */
-    u32 mdev_max_us;    /* maximal mdev for the last rtt period */
-    u32 rttvar_us;  /* smoothed mdev_max            */
-    u32 rtt_seq;    /* sequence number to update rttvar */
-    struct rtt_meas {
-        u32 rtt, ts;    /* RTT in usec and sampling time in jiffies. */
-    } rtt_min[3];
-
-    u32 packets_out;    /* Packets which are "in flight"    */
-    u32 retrans_out;    /* Retransmitted packets out        */
-    u32 max_packets_out;  /* max packets_out in last window */
-    u32 max_packets_seq;  /* right edge of max_packets_out flight */
-
-    u16 urg_data;   /* Saved octet of OOB data and control flags */
-    u8  ecn_flags;  /* ECN status bits.         */
-    u8  keepalive_probes; /* num of allowed keep alive probes   */
-    u32 reordering; /* Packet reordering metric.        */
-    u32 snd_up;     /* Urgent pointer       */
-
-/*
- *      Options received (usually on last packet, some only on SYN packets).
- */
-    struct tcp_options_received rx_opt;
-
-/*
- *  Slow start and congestion control (see also Nagle, and Karn & Partridge)
- */
-    u32 snd_ssthresh;   /* Slow start size threshold        */
-    u32 snd_cwnd;   /* Sending congestion window        */
-    u32 snd_cwnd_cnt;   /* Linear increase counter      */
-    u32 snd_cwnd_clamp; /* Do not allow snd_cwnd to grow above this */
-    u32 snd_cwnd_used;
-    u32 snd_cwnd_stamp;
-    u32 prior_cwnd; /* Congestion window at start of Recovery. */
-    u32 prr_delivered;  /* Number of newly delivered packets to
-                 * receiver in Recovery. */
-    u32 prr_out;    /* Total number of pkts sent during Recovery. */
-
-    u32 rcv_wnd;    /* Current receiver window      */
-    u32 write_seq;  /* Tail(+1) of data held in tcp send buffer */
-    u32 notsent_lowat;  /* TCP_NOTSENT_LOWAT */
-    u32 pushed_seq; /* Last pushed seq, required to talk to windows */
-    u32 lost_out;   /* Lost packets         */
-    u32 sacked_out; /* SACK'd packets           */
-    u32 fackets_out;    /* FACK'd packets           */
-
-    /* from STCP, retrans queue hinting */
-    struct sk_buff* lost_skb_hint;
-    struct sk_buff *retransmit_skb_hint;
-
-    /* OOO segments go in this list. Note that socket lock must be held,
-     * as we do not use sk_buff_head lock.
-     */
-    struct sk_buff_head out_of_order_queue;
-
-    /* SACKs data, these 2 need to be together (see tcp_options_write) */
-    struct tcp_sack_block duplicate_sack[1]; /* D-SACK block */
-    struct tcp_sack_block selective_acks[4]; /* The SACKS themselves*/
-
-    struct tcp_sack_block recv_sack_cache[4];
-
-    struct sk_buff *highest_sack;   /* skb just after the highest
-                     * skb with SACKed bit set
-                     * (validity guaranteed only if
-                     * sacked_out > 0)
-                     */
-
-    int     lost_cnt_hint;
-    u32     retransmit_high;    /* L-bits may be on up to this seqno */
-
-    u32 prior_ssthresh; /* ssthresh saved at recovery start */
-    u32 high_seq;   /* snd_nxt at onset of congestion   */
-
-    u32 retrans_stamp;  /* Timestamp of the last retransmit,
-                 * also used in SYN-SENT to remember stamp of
-                 * the first SYN. */
-    u32 undo_marker;    /* snd_una upon a new recovery episode. */
-    int undo_retrans;   /* number of undoable retransmissions. */
-    u32 total_retrans;  /* Total retransmits for entire connection */
-
-    u32 urg_seq;    /* Seq of received urgent pointer */
-    unsigned int        keepalive_time;   /* time before keep alive takes place */
-    unsigned int        keepalive_intvl;  /* time interval between keep alive probes */
-
-    int         linger2;
-
-/* Receiver side RTT estimation */
-    struct {
-        u32 rtt;
-        u32 seq;
-        u32 time;
-    } rcv_rtt_est;
-
-/* Receiver queue space */
-    struct {
-        int space;
-        u32 seq;
-        u32 time;
-    } rcvq_space;
-
-/* TCP-specific MTU probe information. */
-    struct {
-        u32       probe_seq_start;
-        u32       probe_seq_end;
-    } mtu_probe;
-    u32 mtu_info; /* We received an ICMP_FRAG_NEEDED / ICMPV6_PKT_TOOBIG
-               * while socket was owned by user.
-               */
-
-#ifdef CONFIG_TCP_MD5SIG
-/* TCP AF-Specific parts; only used by MD5 Signature support so far */
-    const struct tcp_sock_af_ops    *af_specific;
-
-/* TCP MD5 Signature Option information */
-    struct tcp_md5sig_info  __rcu *md5sig_info;
-#endif
-
-/* TCP fastopen related information */
-    struct tcp_fastopen_request *fastopen_req;
-    /* fastopen_rsk points to request_sock that resulted in this big
-     * socket. Used to retransmit SYNACKs etc.
-     */
-    struct request_sock *fastopen_rsk;
-    u32 *saved_syn;
-};
-
-\end{minted}
-        \subsection{tcp\_skb\_cb}
+        \subsection{\mintinline{C}{tcp_skb_cb}}
 \label{sec:tcp_skb_cb}
 
 在\ref{sec:sk_buff}中，我们分析过\mintinline{c}{cb}。在这一节中，我们将看到
@@ -1540,7 +1326,7 @@ TCP层具体是如何使用这个控制缓冲区(Control Buffer)的。
 
 可以看到，该宏实际上是将\mintinline{c}{cb}的指针强制转型成\mintinline{c}{tcp_skb_cb}
 结构体的指针。也就是说，TCP对于控制缓冲区的使用，可以从\mintinline{c}{tcp_skb_cb}
-的定义分析出来
+的定义分析出来。
 
 \subsubsection{tcp\_skb\_cb结构体}
 \label{subsec:tcp_skb_sb_structure}

@@ -104,8 +104,8 @@ TCP封包的接收在\mintinline[linenos]{text}{tcp_rcv_established}函数中，
 \section{RFC}
 \label{sec:rfc}
 
-在分析TCP的过程中会遇到很多RFC，在这里，我们将可能会碰到的RFC罗列出来。
-并进行一定的讨论。便于后面的分析。
+在分析TCP的过程中会遇到很多RFC，在这里，我们将可能会碰到的RFC罗列出来，
+并进行一定的讨论，便于后面的分析。
 
 \subsection{RFC793——Transmission Control Protocol}
 \label{subsec:rfc793}
@@ -140,11 +140,13 @@ RFC793中，对于TCP头部格式的描述摘录如下：
 
           Note that one tick mark represents one bit position.
 \end{minted}
+
 这张图可以很方便地读出各个位占多长，它上面的标识是十进制的，很容易读。
 这里我们挑出我们比较关心的Options字段来解读。因为很多TCP的扩展都是通过新增
 选项来实现的。
 
-选项总是在TCP头部的最后，且选项有两种格式：
+	选项总是在TCP头部的最后,且长度是 8 位的整数倍。全部选项都被包括在
+校验和中。选项可从任何字节边界开始。选项的格式有 2 种情况\textbf{有待补充}:
 \begin{enumerate}
 \item 单独的一个字节，代表选项的类型例如：
 
@@ -174,14 +176,15 @@ RFC793中，对于TCP头部格式的描述摘录如下：
 
 \subsubsection{简介}
 \label{subsubsec:rfc1323_introduce}
-这个RFC主要是在考虑高带宽高延迟网络下如何提升TCP的性能。该RFC定义了新的TCP选项，
+
+这个RFC主要是考虑高带宽高延迟网络下如何提升TCP的性能。该RFC定义了新的TCP选项，
 以实现窗口缩放(window scaled)和时间戳(timestamp)。这里的时间戳可以用于实现
 两个机制：RTTM(Round Trip Time Measurement)和PAWS(Protect Against Wrapped Sequences)。
 
 在RFC1323中提出，在这类高带宽高延迟网络下，有三个主要的影响TCP性能的因素：
 \begin{description}
   \item[窗口尺寸限制] 在TCP头部中，只有16位的一个域用于说明窗口大小。也就是说，
-    窗口大小最大只能达到$2^{16}=64K字节$。解决这一问题的方案是增加一个窗口缩放
+    窗口大小最大只能达到$2^{16}=64K$字节。解决这一问题的方案是增加一个窗口缩放
     选项，我们会在\ref{subsubsec:window_scale}中进一步讨论。
   \item[丢包后的恢复] 丢包会导致TCP重新进入慢启动状态，导致数据的流水线断流。
     在引入了快重传和快恢复后，可以解决丢包率为一个窗口中丢一个包的情况下的问题。
@@ -233,6 +236,7 @@ PAWS是一个用于防止旧的重复封包带来的问题的机制。它采用�
 +-------+-------+---------------------+---------------------+
     1       1              4                      4
 \end{minted}
+
 TSval(Timestamp Value)包含了TCP发送方的时钟的当前值。如果ACK位被设置了的话，
 TSecr(Timestamp Echo Reply)会包含一个由对方发送过来的最近的时钟值。
 
