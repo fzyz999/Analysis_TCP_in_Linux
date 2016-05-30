@@ -6,6 +6,121 @@
 %----------------------------------------------------------------------------------------
     \section{sock底层数据结构}  
         \subsection{sock\_common}
+
+\begin{minted}[linenos]{C}
+/**
+ *	struct sock_common - minimal network layer representation of sockets
+ *	@skc_daddr: Foreign IPv4 addr
+ *	@skc_rcv_saddr: Bound local IPv4 addr
+ *	@skc_hash: hash value used with various protocol lookup tables
+ *	@skc_u16hashes: two u16 hash values used by UDP lookup tables
+ *	@skc_dport: placeholder for inet_dport/tw_dport
+ *	@skc_num: placeholder for inet_num/tw_num
+ *	@skc_family: network address family
+ *	@skc_state: Connection state
+ *	@skc_reuse: %SO_REUSEADDR setting
+ *	@skc_reuseport: %SO_REUSEPORT setting
+ *	@skc_bound_dev_if: bound device index if != 0
+ *	@skc_bind_node: bind hash linkage for various protocol lookup tables
+ *	@skc_portaddr_node: second hash linkage for UDP/UDP-Lite protocol
+ *	@skc_prot: protocol handlers inside a network family
+ *	@skc_net: reference to the network namespace of this socket
+ *	@skc_node: main hash linkage for various protocol lookup tables
+ *	@skc_nulls_node: main hash linkage for TCP/UDP/UDP-Lite protocol
+ *	@skc_tx_queue_mapping: tx queue number for this connection
+ *	@skc_flags: place holder for sk_flags
+ *		%SO_LINGER (l_onoff), %SO_BROADCAST, %SO_KEEPALIVE,
+ *		%SO_OOBINLINE settings, %SO_TIMESTAMPING settings
+ *	@skc_incoming_cpu: record/match cpu processing incoming packets
+ *	@skc_refcnt: reference count
+ *
+ *	This is the minimal network layer representation of sockets, the header
+ *	for struct sock and struct inet_timewait_sock.
+ */
+struct sock_common {
+	/* skc_daddr and skc_rcv_saddr must be grouped on a 8 bytes aligned
+	 * address on 64bit arches : cf INET_MATCH()
+	 */
+	union {
+		__addrpair	skc_addrpair;
+		struct {
+			__be32	skc_daddr;
+			__be32	skc_rcv_saddr;
+		};
+	};
+	union  {
+		unsigned int	skc_hash;
+		__u16		skc_u16hashes[2];
+	};
+	/* skc_dport && skc_num must be grouped as well */
+	union {
+		__portpair	skc_portpair;
+		struct {
+			__be16	skc_dport;
+			__u16	skc_num;
+		};
+	};
+
+	unsigned short		skc_family;
+	volatile unsigned char	skc_state;
+	unsigned char		skc_reuse:4;
+	unsigned char		skc_reuseport:1;
+	unsigned char		skc_ipv6only:1;
+	unsigned char		skc_net_refcnt:1;
+	int			skc_bound_dev_if;
+	union {
+		struct hlist_node	skc_bind_node;
+		struct hlist_nulls_node skc_portaddr_node;
+	};
+	struct proto		*skc_prot;
+	possible_net_t		skc_net;
+
+#if IS_ENABLED(CONFIG_IPV6)
+	struct in6_addr		skc_v6_daddr;
+	struct in6_addr		skc_v6_rcv_saddr;
+#endif
+
+	atomic64_t		skc_cookie;
+
+	/* following fields are padding to force
+	 * offset(struct sock, sk_refcnt) == 128 on 64bit arches
+	 * assuming IPV6 is enabled. We use this padding differently
+	 * for different kind of 'sockets'
+	 */
+	union {
+		unsigned long	skc_flags;
+		struct sock	*skc_listener; /* request_sock */
+		struct inet_timewait_death_row *skc_tw_dr; /* inet_timewait_sock */
+	};
+	/*
+	 * fields between dontcopy_begin/dontcopy_end
+	 * are not copied in sock_copy()
+	 */
+	/* private: */
+	int			skc_dontcopy_begin[0];
+	/* public: */
+	union {
+		struct hlist_node	skc_node;
+		struct hlist_nulls_node skc_nulls_node;
+	};
+	int			skc_tx_queue_mapping;
+	union {
+		int		skc_incoming_cpu;
+		u32		skc_rcv_wnd;
+		u32		skc_tw_rcv_nxt; /* struct tcp_timewait_sock  */
+	};
+
+	atomic_t		skc_refcnt;
+	/* private: */
+	int                     skc_dontcopy_end[0];
+	union {
+		u32		skc_rxhash;
+		u32		skc_window_clamp;
+		u32		skc_tw_snd_nxt; /* struct tcp_timewait_sock */
+	};
+	/* public: */
+};
+\end{minted}
         \subsection{sock}
             sock结构是比较通用的网络层描述块，构成传输控制块的基础，与具体的协议族无关。它描述了各协议族的公共信息，因此不能直接作为传输层控制块来使用。不同协议族的传输层在使用该结构的时候都会对其进行拓展，来适合各自的传输特性，例如，inet\_sock结构由sock结构及其它特性组成，构成了IPV4协议族传输控制块的基础。结构如下：
 \begin{minted}[linenos]{C}
@@ -505,7 +620,44 @@ kmemcheck_bitfield_end(flags1);
 %                   Structure about Inet
 %----------------------------------------------------------------------------------------
     \section{inet层相关数据结构}    
-        inet\_request\_sock     
+        \subsection{\mintinline{C}{inet_request_sock}}
+
+		该结构位于\mintinline{C}{/include/net/inet_sock.h}中。
+
+		这个结构的功能呢？
+
+\begin{minted}[linenos]{C}
+struct inet_request_sock {
+	struct request_sock	req;
+#define ir_loc_addr		req.__req_common.skc_rcv_saddr
+#define ir_rmt_addr		req.__req_common.skc_daddr
+#define ir_num			req.__req_common.skc_num
+#define ir_rmt_port		req.__req_common.skc_dport
+#define ir_v6_rmt_addr		req.__req_common.skc_v6_daddr
+#define ir_v6_loc_addr		req.__req_common.skc_v6_rcv_saddr
+#define ir_iif			req.__req_common.skc_bound_dev_if
+#define ir_cookie		req.__req_common.skc_cookie
+#define ireq_net		req.__req_common.skc_net
+#define ireq_state		req.__req_common.skc_state
+#define ireq_family		req.__req_common.skc_family
+
+	kmemcheck_bitfield_begin(flags);
+	u16			snd_wscale : 4,
+				rcv_wscale : 4,
+				tstamp_ok  : 1,
+				sack_ok	   : 1,
+				wscale_ok  : 1,
+				ecn_ok	   : 1,
+				acked	   : 1,
+				no_srccheck: 1;
+	kmemcheck_bitfield_end(flags);
+	u32                     ir_mark;
+	union {
+		struct ip_options_rcu	*opt;
+		struct sk_buff		*pktopts;
+	};
+};
+\end{minted}     
         \subsection{\mintinline{C}{inet_connection_sock_af_ops}}
 
             该结构位于\mintinline{C}{/include/net/inet_connect_sock.h}中,其后面的af表示address of function即函数地址, ops表示operations，即操作。
