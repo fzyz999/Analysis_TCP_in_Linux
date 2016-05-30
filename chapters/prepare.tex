@@ -247,6 +247,60 @@ PAWS的算法流程为：
   \item 其他情况下，将该段视作正常的在窗口中，但顺序不正确的TCP段对待。
 \end{enumerate}
 
-\subsection{RFC3168}
+\subsection{RFC3168——The Addition of Explicit Congestion Notification (ECN) to IP}
 \label{subsec:rfc3168}
+该RFC为TCP/IP网络引入了一种新的用于处理网络拥塞问题的方法。在以往的TCP中，
+人们假定网络是一个不透明的黑盒。而发送方通过丢包的情况来推测路由器处发生了拥塞。
+这种拥塞控制方法对于交互式的应用效果并不理想，且可能对吞吐量造成负面影响。
+因为此时网络可能已经计入到了拥塞状态（路由器的缓存满了，因此发生了丢包）。
+为了解决这一问题，人们已经引入了主动队列管理算法（AQM）。允许路由器在拥塞发生的早期，
+即队列快要满了的时候，就通过主动丢包的方式，告知发送端要减慢发送速率。
+然而，主动丢包会引起包的重传，这会降低网络的性能。因此，RFC3168引入了ECN（显式拥塞
+通知）机制。
 
+\subsubsection{ECN}
+\label{subsubsec:ecn}
+在引入ECN机制后，AQM通知发送端的方式不再局限于主动丢包，而是可以通过IP头部的
+Congestion Experienced(CE)来通知支持ECN机制的发送端发生了拥塞。这样，接收端
+可以不必通过丢包来实现AQM，减少了发送端因丢包而产生的性能下降。
+
+ECN在IP包中的域如下所示：
+\begin{minted}[linenos]{text}
++-----+-----+ 
+| ECN FIELD | 
++-----+-----+ 
+ECT  CE  [Obsolete] RFC 2481 names for the ECN bits. 
+ 0   0   Not-ECT 
+ 0   1   ECT(1) 
+ 1   0   ECT(0) 
+ 1   1   CE
+\end{minted}
+
+Not-ECT代表该包没有采用ECN机制。ECT(1)和ECT(0)均代表该设备支持ECN机制。
+CE用于路由器向发送端表明网络是否正在经历拥塞状态。
+
+\subsubsection{TCP中的ECN}
+在TCP协议中，利用TCP头部的保留位为ECN提供了支持。这里规定了两个新的位：ECE和CWR。
+ECE用于在三次握手中协商手否启用ECN功能。CWR用于让接收端决定合适可以停止设置ECE标志。
+增加ECN支持后的TCP头部示意图如下：
+\begin{minted}[linenos]{text}
+0     1   2   3   4   5   6   7   8   9  10  11  12  13  14  15 
++---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+ 
+|               |               | C | E | U | A | P | R | S | F | 
+| Header Length |   Reserved    | W | C | R | C | S | S | Y | I | 
+|               |               | R | E | G | K | H | T | N | N | 
++---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+
+\end{minted}
+
+对于一个TCP连接，一个典型的基于ECN的序列如下：
+\begin{enumerate}
+  \item 发送方在发送的包中设置ECT位，表明发送端支持ECN。
+  \item 在该包经历一个支持ECN的路由器时，该路由器发现了拥塞，准备主动丢包。
+    此时，它发现正要丢弃的包支持ECN。它会放弃丢包，而是设置IP头部的CE位，
+    表明经历了拥塞。
+  \item 接收方收到设置了CE位的包后，在回复的ACK中，设置ECE标记。
+  \item 发送端收到了一个设定了ECE标记的ACK包，进入和发生丢包一样的拥塞控制状态。
+  \item 发送端在下一个要发送的包中设定CWR位，以通知接收方它已经对ECE位进行了相应处理。
+\end{enumerate}
+
+通过这种方式，就可以在经历网络拥塞时减少丢包的情况，并通知客户端网络的拥塞状态。
