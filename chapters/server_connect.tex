@@ -1,4 +1,5 @@
 \section{TCP被动打开-服务器}
+\label{sec:tcp_server_connect}
         \subsection{基本流程}
             tcp想要被动打开，就必须得先进行listen调用。而对于一台主机，它如果想要作为服务器，它会在什么时候进行listen调用呢？不难想到，它在启动某个需要TCP连接的高级应用程序的时候，就会执行listen调用。经过listen调用之后，系统内部其实创建了一个监听套接字，专门负责监听是否有数据发来，而不会负责传输数据。
 
@@ -121,42 +122,42 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
     switch (sk->sk_state) {
     /*省略无关代码*/
 
-		case TCP_LISTEN:
-		    if (th->ack)
-		        return 1;
+        case TCP_LISTEN:
+            if (th->ack)
+                return 1;
 
-		    if (th->rst)
-		        goto discard;
+            if (th->rst)
+                goto discard;
 
-		    if (th->syn) {
-		        if (th->fin)
-		            goto discard;
-		        if (icsk->icsk_af_ops->conn_request(sk, skb) < 0)
-		            return 1;
+            if (th->syn) {
+                if (th->fin)
+                    goto discard;
+                if (icsk->icsk_af_ops->conn_request(sk, skb) < 0)
+                    return 1;
 
-		        /* Now we have several options: In theory there is
-		         * nothing else in the frame. KA9Q has an option to
-		         * send data with the syn, BSD accepts data with the
-		         * syn up to the [to be] advertised window and
-		         * Solaris 2.1 gives you a protocol error. For now
-		         * we just ignore it, that fits the spec precisely
-		         * and avoids incompatibilities. It would be nice in
-		         * future to drop through and process the data.
-		         *
-		         * Now that TTCP is starting to be used we ought to
-		         * queue this data.
-		         * But, this leaves one open to an easy denial of
-		         * service attack, and SYN cookies can't defend
-		         * against this problem. So, we drop the data
-		         * in the interest of security over speed unless
-		         * it's still in use.
-		         */
-		        kfree_skb(skb);
-		        return 0;
-		    }
-		    goto discard;
+                /* Now we have several options: In theory there is
+                 * nothing else in the frame. KA9Q has an option to
+                 * send data with the syn, BSD accepts data with the
+                 * syn up to the [to be] advertised window and
+                 * Solaris 2.1 gives you a protocol error. For now
+                 * we just ignore it, that fits the spec precisely
+                 * and avoids incompatibilities. It would be nice in
+                 * future to drop through and process the data.
+                 *
+                 * Now that TTCP is starting to be used we ought to
+                 * queue this data.
+                 * But, this leaves one open to an easy denial of
+                 * service attack, and SYN cookies can't defend
+                 * against this problem. So, we drop the data
+                 * in the interest of security over speed unless
+                 * it's still in use.
+                 */
+                kfree_skb(skb);
+                return 0;
+            }
+            goto discard;
 
-		    /*省略无关代码*/
+            /*省略无关代码*/
 discard:
         __kfree_skb(skb);
     }
@@ -189,22 +190,22 @@ drop:
                 
         如果一个SYN段是要被发送到广播地址和组播地址，则直接drop掉，然后返回0。否则的话，就继续调用\mintinline{C}{tcp_conn_request}进行连接处理。
 
-		\mintinline{C}{tcp_conn_request}位于\mintinline{C}{/include/net/tcp_input.c}中。
+        \mintinline{C}{tcp_conn_request}位于\mintinline{C}{/include/net/tcp_input.c}中。
 
 \begin{minted}[linenos]{C}
 int tcp_conn_request(struct request_sock_ops *rsk_ops,
              const struct tcp_request_sock_ops *af_ops,
              struct sock *sk, struct sk_buff *skb)
 {
-    struct tcp_fastopen_cookie foc = { .len = -1 };		//初始化len字段
-    __u32 isn = TCP_SKB_CB(skb)->tcp_tw_isn;			//tw: time wait    isn: initial sequence num 初始化序列号 
+    struct tcp_fastopen_cookie foc = { .len = -1 };     //初始化len字段
+    __u32 isn = TCP_SKB_CB(skb)->tcp_tw_isn;            //tw: time wait    isn: initial sequence num 初始化序列号 
     struct tcp_options_received tmp_opt;
     struct tcp_sock *tp = tcp_sk(sk);
     struct sock *fastopen_sk = NULL;
     struct dst_entry *dst = NULL;
     struct request_sock *req;
-    bool want_cookie = false;							//标志是否开启了SYN_COOKIE选项
-    struct flowi fl;									//路由查找相关的数据结构
+    bool want_cookie = false;                           //标志是否开启了SYN_COOKIE选项
+    struct flowi fl;                                    //路由查找相关的数据结构
 
     /* TW(time wait) buckets are converted to open requests without
      * limitations, they conserve resources and peer is
@@ -265,7 +266,7 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
         如果启动了syncookies，并且TCP选型中没有存在时间戳，则清除已经解析的TCP选项。这是因为计算\mintinline{C}{syn_cookie}必须用到时间戳。
 
 \begin{minted}[linenos]{C}
-    tmp_opt.tstamp_ok = tmp_opt.saw_tstamp;			//tstamp_ok表示在收到的SYN包上看到的TIMESTAMP
+    tmp_opt.tstamp_ok = tmp_opt.saw_tstamp;         //tstamp_ok表示在收到的SYN包上看到的TIMESTAMP
     tcp_openreq_init(req, &tmp_opt, skb, sk);
 \end{minted}
 
@@ -273,7 +274,7 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
 
 \begin{minted}[linenos]{C}
     /* Note: tcp_v6_init_req() might override ir_iif for link locals */
-    inet_rsk(req)->ir_iif = sk->sk_bound_dev_if;						//bound device index if != 0 ????
+    inet_rsk(req)->ir_iif = sk->sk_bound_dev_if;                        //bound device index if != 0 ????
 
     af_ops->init_req(req, sk, skb);
 
@@ -442,16 +443,16 @@ void inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
 \begin{minted}[linenos]{C}
 /*
 Function: 
-	Send a SYN-ACK after having received a SYN.
-	This still operates on a request_sock only, not on a big
-	socket.
+    Send a SYN-ACK after having received a SYN.
+    This still operates on a request_sock only, not on a big
+    socket.
 Paramaters:
-	struct sock *sk					:
-	struct dst_entry *dst			:
-    struct flowi *fl				:
-    struct request_sock *req		:
-    struct tcp_fastopen_cookie *foc	:
-    bool attach_req					:
+    struct sock *sk                 :
+    struct dst_entry *dst           :
+    struct flowi *fl                :
+    struct request_sock *req        :
+    struct tcp_fastopen_cookie *foc :
+    bool attach_req                 :
 */
 static int tcp_v4_send_synack(const struct sock *sk, struct dst_entry *dst,
                   struct flowi *fl,
@@ -498,15 +499,15 @@ static int tcp_v4_send_synack(const struct sock *sk, struct dst_entry *dst,
 \begin{minted}[linenos]{C}
 /*
 Function:
-		tcp_make_synack - Prepare a SYN-ACK.
-		Allocate one skb and build a SYNACK packet.
-		@dst is consumed : Caller should not use it again.
+        tcp_make_synack - Prepare a SYN-ACK.
+        Allocate one skb and build a SYNACK packet.
+        @dst is consumed : Caller should not use it again.
 Parameter:
-		sk			: listener socket
-		dst			: dst entry attached to the SYNACK
-		req			: request_sock pointer
-		foc			:
-		attach_req	:
+        sk          : listener socket
+        dst         : dst entry attached to the SYNACK
+        req         : request_sock pointer
+        foc         :
+        attach_req  :
  */
 struct sk_buff *tcp_make_synack(const struct sock *sk, struct dst_entry *dst,
                 struct request_sock *req,
@@ -727,17 +728,17 @@ static struct sock *tcp_v4_cookie_check(struct sock *sk, struct sk_buff *skb)
 \begin{minted}[linenos]{C}
 /*
 Functions:
-	Queue segment on the new socket if the new socket is active,
-	otherwise we just shortcircuit this and continue with
-	the new socket.
+    Queue segment on the new socket if the new socket is active,
+    otherwise we just shortcircuit this and continue with
+    the new socket.
 
-	For the vast majority of cases child->sk_state will be TCP_SYN_RECV
-	when entering. But other states are possible due to a race condition
-	where after __inet_lookup_established() fails but before the listener
-	locked is obtained, other packets cause the same connection to
-	be created.
+    For the vast majority of cases child->sk_state will be TCP_SYN_RECV
+    when entering. But other states are possible due to a race condition
+    where after __inet_lookup_established() fails but before the listener
+    locked is obtained, other packets cause the same connection to
+    be created.
 Parameters:
-	
+    
 */
 
 int tcp_child_process(struct sock *parent, struct sock *child,
@@ -770,9 +771,9 @@ int tcp_child_process(struct sock *parent, struct sock *child,
 
                 \subsubsection{\mintinline{C}{tcp_rcv_state_process}}
 
-					该函数位于\mintinline{C}{/net/ipv4/tcp_input.c}中。
+                    该函数位于\mintinline{C}{/net/ipv4/tcp_input.c}中。
                     
-					该函数用来处理ESTABLISHED和\mintinline{C}{TIME_WAIT}状态以外的TCP段，这里处理\mintinline{C}{SYN_RECV}状态。
+                    该函数用来处理ESTABLISHED和\mintinline{C}{TIME_WAIT}状态以外的TCP段，这里处理\mintinline{C}{SYN_RECV}状态。
 
 \begin{minted}[linenos]{C}
     acceptable = tcp_ack(sk, skb, FLAG_SLOWPATH |

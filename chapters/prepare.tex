@@ -112,6 +112,73 @@ TCP封包的接收在\mintinline[linenos]{text}{tcp_rcv_established}函数中，
 
 该RFC正是定义了TCP协议的那份RFC。在该RFC中，可以查到TCP的很多细节，帮助后续的代码分析。
 
+\subsubsection{TCP状态图}
+在RFC793中，给出了TCP协议的状态图，图中的TCB代表TCP控制块。原图如下所示：
+\begin{minted}[linenos]{text}
+                              +---------+ ---------\      active OPEN  
+                              |  CLOSED |            \    -----------  
+                              +---------+<---------\   \   create TCB  
+                                |     ^              \   \  snd SYN    
+                   passive OPEN |     |   CLOSE        \   \           
+                   ------------ |     | ----------       \   \         
+                    create TCB  |     | delete TCB         \   \       
+                                V     |                      \   \     
+                              +---------+            CLOSE    |    \   
+                              |  LISTEN |          ---------- |     |  
+                              +---------+          delete TCB |     |  
+                   rcv SYN      |     |     SEND              |     |  
+                  -----------   |     |    -------            |     V  
+ +---------+      snd SYN,ACK  /       \   snd SYN          +---------+
+ |         |<-----------------           ------------------>|         |
+ |   SYN   |                    rcv SYN                     |   SYN   |
+ |   RCVD  |<-----------------------------------------------|   SENT  |
+ |         |                    snd ACK                     |         |
+ |         |------------------           -------------------|         |
+ +---------+   rcv ACK of SYN  \       /  rcv SYN,ACK       +---------+
+   |           --------------   |     |   -----------                  
+   |                  x         |     |     snd ACK                    
+   |                            V     V                                
+   |  CLOSE                   +---------+                              
+   | -------                  |  ESTAB  |                              
+   | snd FIN                  +---------+                              
+   |                   CLOSE    |     |    rcv FIN                     
+   V                  -------   |     |    -------                     
+ +---------+          snd FIN  /       \   snd ACK          +---------+
+ |  FIN    |<-----------------           ------------------>|  CLOSE  |
+ | WAIT-1  |------------------                              |   WAIT  |
+ +---------+          rcv FIN  \                            +---------+
+   | rcv ACK of FIN   -------   |                            CLOSE  |  
+   | --------------   snd ACK   |                           ------- |  
+   V        x                   V                           snd FIN V  
+ +---------+                  +---------+                   +---------+
+ |FINWAIT-2|                  | CLOSING |                   | LAST-ACK|
+ +---------+                  +---------+                   +---------+
+   |                rcv ACK of FIN |                 rcv ACK of FIN |  
+   |  rcv FIN       -------------- |    Timeout=2MSL -------------- |  
+   |  -------              x       V    ------------        x       V  
+    \ snd ACK                 +---------+delete TCB         +---------+
+     ------------------------>|TIME WAIT|------------------>| CLOSED  |
+                              +---------+                   +---------+
+
+                      TCP Connection State Diagram
+\end{minted}
+这张图对于后面的分析有很强的指导意义。
+
+连接部分分为了主动连接和被动连接。主动连接是指客户端从CLOSED状态主动发出连接请求，
+进入SYN-SENT状态，之后收到服务端的SYN+ACK包，进入ESTAB状态（即连接建立状态），
+然后回复ACK包，完成三次握手。这一部分的代码我们将在\ref{sec:tcp_connect_client}
+中进行详细分析。被动连接是从listen状态开始，监听端口。随后收到SYN包，进入SYN-RCVD状态，
+同时发送SYN+ACK包，最后，收到ACK后，进入ESTAB状态，完成被动连接的三次握手过程。
+这一部分的详细讨论在\ref{sec:tcp_server_connect}中完成。
+
+连接终止的部分也被分为了两部分进行实现，主动终止和被动终止。主动终止是上图中从ESTAB状态
+主动终止连接，发送FIN包的过程。可以看到，主动终止又分为两种情况，一种是FIN发出后，收到了
+发来的FIN（即通信双方同时主动关闭连接），此时转入CLOSING状态并发送ACK包。收到ACK后，
+进入TIME WAIT状态。另一种是收到了ACK包，转入FINWAIT-2状态，最后收到FIN后发送ACK，
+完成四次握手，进入TIME WAIT状态。最后等数据发送完或者超时后，删除TCB，进入CLOSED状态。
+被动终止则是接收到FIN包后，发送了ACK包，进入CLOSE WAIT状态。之后，当这一端的数据
+也发送完成后，发送FIN包，进入LAST-ACK状态，接收到ACK后，进入CLOSED状态。
+
 \subsubsection{TCP头部格式}
 \label{subsubsec:tcp_header_format}
 RFC793中，对于TCP头部格式的描述摘录如下：
@@ -145,7 +212,7 @@ RFC793中，对于TCP头部格式的描述摘录如下：
 这里我们挑出我们比较关心的Options字段来解读。因为很多TCP的扩展都是通过新增
 选项来实现的。
 
-	选项总是在TCP头部的最后,且长度是 8 位的整数倍。全部选项都被包括在
+    选项总是在TCP头部的最后,且长度是 8 位的整数倍。全部选项都被包括在
 校验和中。选项可从任何字节边界开始。选项的格式有 2 种情况\textbf{有待补充}:
 \begin{enumerate}
 \item 单独的一个字节，代表选项的类型例如：
