@@ -1,4 +1,7 @@
 \chapter{附录:基础知识}
+
+\minitoc
+
 	\section{C语言}
 		\subsection{结构体初始化}
 \begin{minted}[linenos]{C}
@@ -40,8 +43,7 @@ struct {
 			冒号后面表示相应字段的宽度(二进制宽度)，即不一定非得是1位。字段被声明为\mintinline{C}{unsigned int}类型，以确保它们是无符号量。
 
 			当然我们需要注意，机器是分大端和小端存储的。因此，我们在选择外部定义数据的情况下爱，必须仔细考虑那一端优先的问题。同时，字段不是数组，并且没有地址，因此不能对它们使用\mintinline{C}{&}运算符。	
-	\section{操作系统}
-	\section{GNU C}
+	\section{GCC}
 		\subsection{\mintinline{C}{__attribute__}}
 			GNU C的一大特色就是\mintinline{C}{__attribute__}机制。\mintinline{C}{__attribute__}可以设置函数属性（Function Attribute）、变量属性（Variable Attribute）和类型属性（Type Attribute）。
 
@@ -82,5 +84,52 @@ struct S {
 			需要注意的是，attribute 属性的效力与你的连接器也有关，如果你的连接器最大只支持16 字节对齐，那么你此时定义32 字节对齐也是无济于事的。
 
 			\subsubsection{设置函数属性}
+	\subsection{分支预测优化}
 
+		现代处理器均为流水线结构。而分支语句可能导致流水线断流。因此，很多处理器均有分支预测的功能。
+然而，分支预测失败所导致的惩罚也是相对高昂的。为了提升性能，Linux的很多分支判断中都使用了
+\mintinline{c}{likely()}和\mintinline{c}{unlikely()}这组宏定义来人工指示编译器，哪些
+分支出现的概率极高，以便编译器进行优化。
 
+		这里有两种定义，一种是开启了分支语句分析相关的选项时，内核会采用下面的一种定义
+\begin{minted}[linenos]{c}
+/* include/linux/compiler.h
+ * 采用__builtin_constant_p(x)来忽略常量表达式。
+ */
+# ifndef likely
+#  define likely(x)     (__builtin_constant_p(x) ? !!(x) : __branch_check__(x, 1))
+# endif
+# ifndef unlikely
+#  define unlikely(x)   (__builtin_constant_p(x) ? !!(x) : __branch_check__(x, 0))
+# endif
+\end{minted}
+
+		在该定义下，\mintinline{c}{__branch_check__}用于跟踪分支结果并更新统计数据。
+
+		如果不开启该选项，则定义得较为简单：
+\begin{minted}[linenos]{c}
+# define likely(x)      __builtin_expect(!!(x), 1)
+# define unlikely(x)    __builtin_expect(!!(x), 0)
+\end{minted}
+其中\mintinline{c}{__builtin_expect}是GCC的内置函数，用于指示编译器，该条件语句最可能的结果是什么。
+
+	\section{操作系统}
+		\subsection{字节序}
+			CPU分为大端和小端两种。而在网络传输的过程中，大小端的不一致会带来问题。
+因此，网络协议中对于字节序都有明确规定。一般采用大端序。
+
+			Linux中，对于这一部分的支持放在了\mintinline{text}{include/linux/byteorder/generic.h}
+中。而实现，则交由体系结构相关的代码来完成。
+
+\begin{minted}[linenos]{c}
+/* 下面的函数用于进行对16位整型或者32位整型在网络传输格式和本地格式之间的转换。
+ */
+ntohl(__u32 x)
+ntohs(__u16 x)
+htonl(__u32 x)
+htons(__u16 x)
+\end{minted}
+
+			上面函数的命名规则是末尾的l代表32位，s代表16位。n代表network，h代表host。
+根据命名规则，不难知道函数的用途。比如htons就是从本地的格式转换的网络传输用的格式，
+转换的是16位整数。
