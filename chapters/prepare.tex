@@ -375,3 +375,50 @@ ECE用于在三次握手中协商手否启用ECN功能。CWR用于让接收端�
 \end{enumerate}
 
 通过这种方式，就可以在经历网络拥塞时减少丢包的情况，并通知客户端网络的拥塞状态。
+
+\subsection{RFC7413——TCP Fast Open(Draft)}
+\label{subsec:rfc7413}
+
+RFC7413目前还处于草案状态，它引入了一种试验性的特性：允许在三次握手阶段的SYN和SYN-ACK包中
+携带数据。相较于标准的三次握手，引入TFO(TCP Fast Open)机制可以节省一个RTT的时间。
+该RFC由Google提交，并在Linux和Chrome中实现了对该功能的支持。此后，越来越多的软件也
+支持了该功能。
+
+\subsubsection{概要}
+\label{subsubsec:rfc7413-overview}
+TFO中，最核心的一个部分是Fast Open Cookie。这个Cookie是由服务器生成的，在初次
+进行常规的TCP连接时，由客户端向服务器请求，之后，则可利用这个Cookie在后续的TCP
+连接中在三次握手阶段交换数据。
+
+请求Fast Open Cookie的过程为：
+\begin{enumerate}
+  \item 客户端发送一个带有Fast Open选项且cookie域为空的SYN包
+  \item 服务器生成一个cookie，通过SYN-ACK包回复给客户端
+  \item 客户端将该cookie缓存，并用于后续的TCP Fast Open连接。
+\end{enumerate}
+
+建立Fast Open连接的过程如下：
+\begin{enumerate}
+  \item 客户端发送一个带有数据的SYN包，同时在Fast Open选项里带上cookie。
+  \item 服务端验证cookie的有效性，如果有效，则回复SYN-ACK，并将数据发给应用程序。
+  \item 客户端发送ACK请求，确认服务器发来的SYN-ACK包及其中的数据。
+  \item 至此，三次握手已完成，后续过程与普通TCP连接一致。
+\end{enumerate}
+
+\subsubsection{Fast Open选项格式}
+\label{subsubsec:fast-open-option}
+该选项的格式如下：
+\begin{minted}[linenos]{text}
+                                   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                                   |  Kind = 34    |    Length     |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                                                               |
+   ~                            Cookie                             ~
+   |                                                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   Length          1 byte: range 6 to 18 (bytes); limited by
+                           remaining space in the options field.
+                           The number MUST be even.
+   Cookie          0, or 4 to 16 bytes (Length - 2)
+\end{minted}
+这里注意，虽然图示中Cookie按照32位对齐了，但是这并不是必须的。
