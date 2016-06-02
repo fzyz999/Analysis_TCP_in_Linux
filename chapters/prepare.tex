@@ -113,6 +113,7 @@ TCP封包的接收在\mintinline[linenos]{text}{tcp_rcv_established}函数中，
 该RFC正是定义了TCP协议的那份RFC。在该RFC中，可以查到TCP的很多细节，帮助后续的代码分析。
 
 \subsubsection{TCP状态图}
+\label{subsubsec:tcp_state_diagram}
 在RFC793中，给出了TCP协议的状态图，图中的TCB代表TCP控制块。原图如下所示：
 \begin{minted}[linenos]{text}
                               +---------+ ---------\      active OPEN  

@@ -1,4 +1,111 @@
 \section{主动关闭}
+\label{sec:tcp_active_close}
+
+\subsection{第一次握手——发送FIN}
+\label{subsec:tcp_shutdown}
+通过shutdown系统调用，主动关闭TCP连接。该系统调用最终由\mintinline{c}{tcp_shutdown}实现。
+代码如下：
+
+\begin{minted}[linenos]{c}
+void tcp_shutdown(struct sock *sk, int how)
+{
+        /*      We need to grab some memory, and put together a FIN,
+         *      and then put it into the queue to be sent.
+         *              Tim MacKenzie(tym@dibbler.cs.monash.edu.au) 4 Dec '92.
+         */
+        if (!(how & SEND_SHUTDOWN))
+                return;
+
+        /* 如果此时已经发送一个FIN了，就跳过。 */
+        if ((1 << sk->sk_state) &
+            (TCPF_ESTABLISHED | TCPF_SYN_SENT |
+             TCPF_SYN_RECV | TCPF_CLOSE_WAIT)) {
+                /* Clear out any half completed packets.  FIN if needed. */
+                if (tcp_close_state(sk))
+                        tcp_send_fin(sk);
+        }
+}
+\end{minted}
+该函数会在需要发送FIN时，调用\mintinline{c}{tcp_close_state()}来设置TCP的状态。
+该函数会根据当前的状态，按照\ref{subsubsec:tcp_state_diagram}中给出的状态图。
+\begin{minted}[linenos]{c}
+static const unsigned char new_state[16] = {
+  /* 当前状态:             新的状态:        动作:      */
+  [0 /* (Invalid) */]   = TCP_CLOSE,
+  [TCP_ESTABLISHED]     = TCP_FIN_WAIT1 | TCP_ACTION_FIN,
+  [TCP_SYN_SENT]        = TCP_CLOSE,
+  [TCP_SYN_RECV]        = TCP_FIN_WAIT1 | TCP_ACTION_FIN,
+  [TCP_FIN_WAIT1]       = TCP_FIN_WAIT1,
+  [TCP_FIN_WAIT2]       = TCP_FIN_WAIT2,
+  [TCP_TIME_WAIT]       = TCP_CLOSE,
+  [TCP_CLOSE]           = TCP_CLOSE,
+  [TCP_CLOSE_WAIT]      = TCP_LAST_ACK  | TCP_ACTION_FIN,
+  [TCP_LAST_ACK]        = TCP_LAST_ACK,
+  [TCP_LISTEN]          = TCP_CLOSE,
+  [TCP_CLOSING]         = TCP_CLOSING,
+  [TCP_NEW_SYN_RECV]    = TCP_CLOSE,    /* should not happen ! */
+};
+
+static int tcp_close_state(struct sock *sk)
+{
+        int next = (int)new_state[sk->sk_state];
+        int ns = next & TCP_STATE_MASK;
+
+        /* 根据状态图进行状态转移 */
+        tcp_set_state(sk, ns);
+
+        /* 如果需要执行发送FIN的动作，则返回真 */
+        return next & TCP_ACTION_FIN;
+}
+\end{minted}
+可以看出，只有当当前状态为TCP\_ESTABLISHED、TCP\_SYN\_RECV、TCP\_CLOSE\_WAIT时，
+需要发送FIN包。这个也和TCP状态图一致。如果需要发送FIN包，则会调用
+\mintinline{c}{tcp_send_fin}。
+\begin{minted}[linenos]{c}
+void tcp_send_fin(struct sock *sk)
+{
+        struct sk_buff *skb, *tskb = tcp_write_queue_tail(sk);
+        struct tcp_sock *tp = tcp_sk(sk);
+
+        /* 这里做了一些优化。如果发送队列的末尾还有段没有发出去，则利用该段发送FIN。 */
+        if (tskb && (tcp_send_head(sk) || tcp_under_memory_pressure(sk))) {
+          /* 如果当前正在发送的队列不为空，或者当前TCP处于内存压力下，则进行该优化 */
+coalesce:
+                TCP_SKB_CB(tskb)->tcp_flags |= TCPHDR_FIN;
+                TCP_SKB_CB(tskb)->end_seq++;
+                tp->write_seq++;
+                if (!tcp_send_head(sk)) {
+                        /* This means tskb was already sent.
+                         * Pretend we included the FIN on previous transmit.
+                         * We need to set tp->snd_nxt to the value it would have
+                         * if FIN had been sent. This is because retransmit path
+                         * does not change tp->snd_nxt.
+                         */
+                        tp->snd_nxt++;
+                        return;
+                }
+        } else {
+                /* 为封包分配空间 */
+                skb = alloc_skb_fclone(MAX_TCP_HEADER, sk->sk_allocation);
+                if (unlikely(!skb)) {
+                        /* 如果分配不到空间，且队尾还有未发送的包，利用该包发出FIN。 */
+                        if (tskb)
+                                goto coalesce;
+                        return;
+                }
+                skb_reserve(skb, MAX_TCP_HEADER);
+                sk_forced_mem_schedule(sk, skb->truesize);
+                /* FIN eats a sequence byte, write_seq advanced by tcp_queue_skb(). */
+                /* 构造一个FIN包，并加入发送队列。 */
+                tcp_init_nondata_skb(skb, tp->write_seq,
+                                     TCPHDR_ACK | TCPHDR_FIN);
+                tcp_queue_skb(sk, skb);
+        }
+        __tcp_push_pending_frames(sk, tcp_current_mss(sk), TCP_NAGLE_OFF);
+}
+\end{minted}
+在函数的最后，将所有的剩余数据一口气发出去，完成发送FIN包的过程。至此，主动关闭过程的
+第一次握手完成。
 
 \subsection{FIN\_WAIT1}
 

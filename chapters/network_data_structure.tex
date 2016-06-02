@@ -9,116 +9,116 @@
 
 \begin{minted}[linenos]{C}
 /**
- *	struct sock_common - minimal network layer representation of sockets
- *	@skc_daddr: Foreign IPv4 addr
- *	@skc_rcv_saddr: Bound local IPv4 addr
- *	@skc_hash: hash value used with various protocol lookup tables
- *	@skc_u16hashes: two u16 hash values used by UDP lookup tables
- *	@skc_dport: placeholder for inet_dport/tw_dport
- *	@skc_num: placeholder for inet_num/tw_num
- *	@skc_family: network address family
- *	@skc_state: Connection state
- *	@skc_reuse: %SO_REUSEADDR setting
- *	@skc_reuseport: %SO_REUSEPORT setting
- *	@skc_bound_dev_if: bound device index if != 0
- *	@skc_bind_node: bind hash linkage for various protocol lookup tables
- *	@skc_portaddr_node: second hash linkage for UDP/UDP-Lite protocol
- *	@skc_prot: protocol handlers inside a network family
- *	@skc_net: reference to the network namespace of this socket
- *	@skc_node: main hash linkage for various protocol lookup tables
- *	@skc_nulls_node: main hash linkage for TCP/UDP/UDP-Lite protocol
- *	@skc_tx_queue_mapping: tx queue number for this connection
- *	@skc_flags: place holder for sk_flags
- *		%SO_LINGER (l_onoff), %SO_BROADCAST, %SO_KEEPALIVE,
- *		%SO_OOBINLINE settings, %SO_TIMESTAMPING settings
- *	@skc_incoming_cpu: record/match cpu processing incoming packets
- *	@skc_refcnt: reference count
+ *  struct sock_common - minimal network layer representation of sockets
+ *  @skc_daddr: Foreign IPv4 addr
+ *  @skc_rcv_saddr: Bound local IPv4 addr
+ *  @skc_hash: hash value used with various protocol lookup tables
+ *  @skc_u16hashes: two u16 hash values used by UDP lookup tables
+ *  @skc_dport: placeholder for inet_dport/tw_dport
+ *  @skc_num: placeholder for inet_num/tw_num
+ *  @skc_family: network address family
+ *  @skc_state: Connection state
+ *  @skc_reuse: %SO_REUSEADDR setting
+ *  @skc_reuseport: %SO_REUSEPORT setting
+ *  @skc_bound_dev_if: bound device index if != 0
+ *  @skc_bind_node: bind hash linkage for various protocol lookup tables
+ *  @skc_portaddr_node: second hash linkage for UDP/UDP-Lite protocol
+ *  @skc_prot: protocol handlers inside a network family
+ *  @skc_net: reference to the network namespace of this socket
+ *  @skc_node: main hash linkage for various protocol lookup tables
+ *  @skc_nulls_node: main hash linkage for TCP/UDP/UDP-Lite protocol
+ *  @skc_tx_queue_mapping: tx queue number for this connection
+ *  @skc_flags: place holder for sk_flags
+ *      %SO_LINGER (l_onoff), %SO_BROADCAST, %SO_KEEPALIVE,
+ *      %SO_OOBINLINE settings, %SO_TIMESTAMPING settings
+ *  @skc_incoming_cpu: record/match cpu processing incoming packets
+ *  @skc_refcnt: reference count
  *
- *	This is the minimal network layer representation of sockets, the header
- *	for struct sock and struct inet_timewait_sock.
+ *  This is the minimal network layer representation of sockets, the header
+ *  for struct sock and struct inet_timewait_sock.
  */
 struct sock_common {
-	/* skc_daddr and skc_rcv_saddr must be grouped on a 8 bytes aligned
-	 * address on 64bit arches : cf INET_MATCH()
-	 */
-	union {
-		__addrpair	skc_addrpair;
-		struct {
-			__be32	skc_daddr;
-			__be32	skc_rcv_saddr;
-		};
-	};
-	union  {
-		unsigned int	skc_hash;
-		__u16		skc_u16hashes[2];
-	};
-	/* skc_dport && skc_num must be grouped as well */
-	union {
-		__portpair	skc_portpair;
-		struct {
-			__be16	skc_dport;
-			__u16	skc_num;
-		};
-	};
+    /* skc_daddr and skc_rcv_saddr must be grouped on a 8 bytes aligned
+     * address on 64bit arches : cf INET_MATCH()
+     */
+    union {
+        __addrpair  skc_addrpair;
+        struct {
+            __be32  skc_daddr;
+            __be32  skc_rcv_saddr;
+        };
+    };
+    union  {
+        unsigned int    skc_hash;
+        __u16       skc_u16hashes[2];
+    };
+    /* skc_dport && skc_num must be grouped as well */
+    union {
+        __portpair  skc_portpair;
+        struct {
+            __be16  skc_dport;
+            __u16   skc_num;
+        };
+    };
 
-	unsigned short		skc_family;
-	volatile unsigned char	skc_state;
-	unsigned char		skc_reuse:4;
-	unsigned char		skc_reuseport:1;
-	unsigned char		skc_ipv6only:1;
-	unsigned char		skc_net_refcnt:1;
-	int			skc_bound_dev_if;
-	union {
-		struct hlist_node	skc_bind_node;
-		struct hlist_nulls_node skc_portaddr_node;
-	};
-	struct proto		*skc_prot;
-	possible_net_t		skc_net;
+    unsigned short      skc_family;
+    volatile unsigned char  skc_state;
+    unsigned char       skc_reuse:4;
+    unsigned char       skc_reuseport:1;
+    unsigned char       skc_ipv6only:1;
+    unsigned char       skc_net_refcnt:1;
+    int         skc_bound_dev_if;
+    union {
+        struct hlist_node   skc_bind_node;
+        struct hlist_nulls_node skc_portaddr_node;
+    };
+    struct proto        *skc_prot;
+    possible_net_t      skc_net;
 
 #if IS_ENABLED(CONFIG_IPV6)
-	struct in6_addr		skc_v6_daddr;
-	struct in6_addr		skc_v6_rcv_saddr;
+    struct in6_addr     skc_v6_daddr;
+    struct in6_addr     skc_v6_rcv_saddr;
 #endif
 
-	atomic64_t		skc_cookie;
+    atomic64_t      skc_cookie;
 
-	/* following fields are padding to force
-	 * offset(struct sock, sk_refcnt) == 128 on 64bit arches
-	 * assuming IPV6 is enabled. We use this padding differently
-	 * for different kind of 'sockets'
-	 */
-	union {
-		unsigned long	skc_flags;
-		struct sock	*skc_listener; /* request_sock */
-		struct inet_timewait_death_row *skc_tw_dr; /* inet_timewait_sock */
-	};
-	/*
-	 * fields between dontcopy_begin/dontcopy_end
-	 * are not copied in sock_copy()
-	 */
-	/* private: */
-	int			skc_dontcopy_begin[0];
-	/* public: */
-	union {
-		struct hlist_node	skc_node;
-		struct hlist_nulls_node skc_nulls_node;
-	};
-	int			skc_tx_queue_mapping;
-	union {
-		int		skc_incoming_cpu;
-		u32		skc_rcv_wnd;
-		u32		skc_tw_rcv_nxt; /* struct tcp_timewait_sock  */
-	};
+    /* following fields are padding to force
+     * offset(struct sock, sk_refcnt) == 128 on 64bit arches
+     * assuming IPV6 is enabled. We use this padding differently
+     * for different kind of 'sockets'
+     */
+    union {
+        unsigned long   skc_flags;
+        struct sock *skc_listener; /* request_sock */
+        struct inet_timewait_death_row *skc_tw_dr; /* inet_timewait_sock */
+    };
+    /*
+     * fields between dontcopy_begin/dontcopy_end
+     * are not copied in sock_copy()
+     */
+    /* private: */
+    int         skc_dontcopy_begin[0];
+    /* public: */
+    union {
+        struct hlist_node   skc_node;
+        struct hlist_nulls_node skc_nulls_node;
+    };
+    int         skc_tx_queue_mapping;
+    union {
+        int     skc_incoming_cpu;
+        u32     skc_rcv_wnd;
+        u32     skc_tw_rcv_nxt; /* struct tcp_timewait_sock  */
+    };
 
-	atomic_t		skc_refcnt;
-	/* private: */
-	int                     skc_dontcopy_end[0];
-	union {
-		u32		skc_rxhash;
-		u32		skc_window_clamp;
-		u32		skc_tw_snd_nxt; /* struct tcp_timewait_sock */
-	};
-	/* public: */
+    atomic_t        skc_refcnt;
+    /* private: */
+    int                     skc_dontcopy_end[0];
+    union {
+        u32     skc_rxhash;
+        u32     skc_window_clamp;
+        u32     skc_tw_snd_nxt; /* struct tcp_timewait_sock */
+    };
+    /* public: */
 };
 \end{minted}
         \subsection{sock}
@@ -186,7 +186,7 @@ struct sock_common {
   * @sk_user_data: RPC layer private data
   * @sk_frag: cached page frag
   * @sk_peek_off: current peek_offset value
-  * @sk_send_head: front of stuff to transmit
+  * @sk_send_head: 发送队列的头指针
   * @sk_security: used by security modules
   * @sk_mark: generic packet mark
   * @sk_classid: this socket's cgroup classid
@@ -340,33 +340,33 @@ struct sock {
     void                    (*sk_destruct)(struct sock *sk);
 };
 \end{minted}
-	\subsection{\mintinline{C}{request_sock}}
+    \subsection{\mintinline{C}{request_sock}}
 
-		该结构位于\mintinline{C}{/include/net/request_sock.h}中。该结构用于表示一个简单的TCP连接请求。
+        该结构位于\mintinline{C}{/include/net/request_sock.h}中。该结构用于表示一个简单的TCP连接请求。
 
 \begin{minted}[linenos]{C}
 /* struct request_sock - mini sock to represent a connection request
  */
 struct request_sock {
-	struct sock_common		__req_common;
-#define rsk_refcnt			__req_common.skc_refcnt
-#define rsk_hash			__req_common.skc_hash
-#define rsk_listener			__req_common.skc_listener
-#define rsk_window_clamp		__req_common.skc_window_clamp
-#define rsk_rcv_wnd			__req_common.skc_rcv_wnd
+    struct sock_common      __req_common;
+#define rsk_refcnt          __req_common.skc_refcnt
+#define rsk_hash            __req_common.skc_hash
+#define rsk_listener            __req_common.skc_listener
+#define rsk_window_clamp        __req_common.skc_window_clamp
+#define rsk_rcv_wnd         __req_common.skc_rcv_wnd
 
-	struct request_sock		*dl_next;
-	u16				mss;
-	u8				num_retrans; /* number of retransmits */
-	u8				cookie_ts:1; /* syncookie: encode tcpopts in timestamp */
-	u8				num_timeout:7; /* number of timeouts */
-	u32				ts_recent;
-	struct timer_list		rsk_timer;
-	const struct request_sock_ops	*rsk_ops;
-	struct sock			*sk;
-	u32				*saved_syn;
-	u32				secid;
-	u32				peer_secid;
+    struct request_sock     *dl_next;
+    u16             mss;
+    u8              num_retrans; /* number of retransmits */
+    u8              cookie_ts:1; /* syncookie: encode tcpopts in timestamp */
+    u8              num_timeout:7; /* number of timeouts */
+    u32             ts_recent;
+    struct timer_list       rsk_timer;
+    const struct request_sock_ops   *rsk_ops;
+    struct sock         *sk;
+    u32             *saved_syn;
+    u32             secid;
+    u32             peer_secid;
 };
 \end{minted}
 
@@ -463,13 +463,13 @@ kmemcheck是内核中的一套内存检测工具。kmemcheck\_bitfield\_begin
 * Note that queue_mapping is here mostly to fill a hole.
 */
 kmemcheck_bitfield_begin(flags1);
-__u16       queue_mapping; 		/* 对于多队列设备的队列关系映射 				*/
-__u8        cloned:1, 			/* 是否被克隆 								*/
-            nohdr:1, 			/* 只引用了负载 								*/
-            fclone:2, 			/* skbuff克隆的情况 							*/
-            peeked:1,			/* peeked表明该包已经被统计过了，无需再次统计 */
+__u16       queue_mapping;      /* 对于多队列设备的队列关系映射                 */
+__u8        cloned:1,           /* 是否被克隆                               */
+            nohdr:1,            /* 只引用了负载                                 */
+            fclone:2,           /* skbuff克隆的情况                             */
+            peeked:1,           /* peeked表明该包已经被统计过了，无需再次统计 */
             head_frag:1,
-            xmit_more:1; 		/* 在队列中有更多的SKB在等待 					*/
+            xmit_more:1;        /* 在队列中有更多的SKB在等待                    */
 /* one bit hole */
 kmemcheck_bitfield_end(flags1);
 \end{minted}
@@ -625,40 +625,40 @@ kmemcheck_bitfield_end(flags1);
     \section{inet层相关数据结构}    
         \subsection{\mintinline{C}{inet_request_sock}}
 
-		该结构位于\mintinline{C}{/include/net/inet_sock.h}中。
+        该结构位于\mintinline{C}{/include/net/inet_sock.h}中。
 
-		这个结构的功能呢？
+        这个结构的功能呢？
 
 \begin{minted}[linenos]{C}
 struct inet_request_sock {
-	struct request_sock	req;
-#define ir_loc_addr		req.__req_common.skc_rcv_saddr
-#define ir_rmt_addr		req.__req_common.skc_daddr
-#define ir_num			req.__req_common.skc_num
-#define ir_rmt_port		req.__req_common.skc_dport
-#define ir_v6_rmt_addr		req.__req_common.skc_v6_daddr
-#define ir_v6_loc_addr		req.__req_common.skc_v6_rcv_saddr
-#define ir_iif			req.__req_common.skc_bound_dev_if
-#define ir_cookie		req.__req_common.skc_cookie
-#define ireq_net		req.__req_common.skc_net
-#define ireq_state		req.__req_common.skc_state
-#define ireq_family		req.__req_common.skc_family
+    struct request_sock req;
+#define ir_loc_addr     req.__req_common.skc_rcv_saddr
+#define ir_rmt_addr     req.__req_common.skc_daddr
+#define ir_num          req.__req_common.skc_num
+#define ir_rmt_port     req.__req_common.skc_dport
+#define ir_v6_rmt_addr      req.__req_common.skc_v6_daddr
+#define ir_v6_loc_addr      req.__req_common.skc_v6_rcv_saddr
+#define ir_iif          req.__req_common.skc_bound_dev_if
+#define ir_cookie       req.__req_common.skc_cookie
+#define ireq_net        req.__req_common.skc_net
+#define ireq_state      req.__req_common.skc_state
+#define ireq_family     req.__req_common.skc_family
 
-	kmemcheck_bitfield_begin(flags);
-	u16			snd_wscale : 4,
-				rcv_wscale : 4,
-				tstamp_ok  : 1,
-				sack_ok	   : 1,
-				wscale_ok  : 1,
-				ecn_ok	   : 1,
-				acked	   : 1,
-				no_srccheck: 1;
-	kmemcheck_bitfield_end(flags);
-	u32                     ir_mark;
-	union {
-		struct ip_options_rcu	*opt;
-		struct sk_buff		*pktopts;
-	};
+    kmemcheck_bitfield_begin(flags);
+    u16         snd_wscale : 4,
+                rcv_wscale : 4,
+                tstamp_ok  : 1,
+                sack_ok    : 1,
+                wscale_ok  : 1,
+                ecn_ok     : 1,
+                acked      : 1,
+                no_srccheck: 1;
+    kmemcheck_bitfield_end(flags);
+    u32                     ir_mark;
+    union {
+        struct ip_options_rcu   *opt;
+        struct sk_buff      *pktopts;
+    };
 };
 \end{minted}     
         \subsection{\mintinline{C}{inet_connection_sock_af_ops}}
@@ -854,12 +854,12 @@ struct ip_options_rcu {
 %                   Structre about Router
 %----------------------------------------------------------------------------------------
     \section{路由相关数据结构}
-				
-		\subsection{\mintinline{C}{dst_entry}}
+                
+        \subsection{\mintinline{C}{dst_entry}}
 
-			该结构位于\mintinline{C}{/include/net/dst.h}中。
-			
-			最终生成的IP数据报的路由称为目的入口(\mintinline{C}{dst_entry})，目的入口反映了相邻的外部主机在本地主机内部的一种“映象”。它是与协议无关的目的路由缓存相关的数据结构，保护了路由缓存链接在一起的数据结构成员变量、垃圾回收相关的成员变量、邻居项相关的成员、二层缓存头相关的成员、输入/输出函数指针以用于命中路由缓存的数据包进行后续的数据处理等。
+            该结构位于\mintinline{C}{/include/net/dst.h}中。
+            
+            最终生成的IP数据报的路由称为目的入口(\mintinline{C}{dst_entry})，目的入口反映了相邻的外部主机在本地主机内部的一种“映象”。它是与协议无关的目的路由缓存相关的数据结构，保护了路由缓存链接在一起的数据结构成员变量、垃圾回收相关的成员变量、邻居项相关的成员、二层缓存头相关的成员、输入/输出函数指针以用于命中路由缓存的数据包进行后续的数据处理等。
 
 \begin{minted}[linenos]{C}
 /* Each dst_entry has reference count and sits in some parent list(s).
@@ -869,137 +869,137 @@ struct ip_options_rcu {
  * to gc list and garbage collector periodically checks the refcnt.
  */
 struct dst_entry {
-	struct rcu_head		rcu_head;
-	struct dst_entry	*child;
-	struct net_device       *dev;
-	struct  dst_ops	        *ops;
-	unsigned long		_metrics;
-	unsigned long           expires;
-	struct dst_entry	*path;
-	struct dst_entry	*from;
+    struct rcu_head     rcu_head;
+    struct dst_entry    *child;
+    struct net_device       *dev;
+    struct  dst_ops         *ops;
+    unsigned long       _metrics;
+    unsigned long           expires;
+    struct dst_entry    *path;
+    struct dst_entry    *from;
 #ifdef CONFIG_XFRM
-	struct xfrm_state	*xfrm;
+    struct xfrm_state   *xfrm;
 #else
-	void			*__pad1;
+    void            *__pad1;
 #endif
-	int			(*input)(struct sk_buff *);
-	int			(*output)(struct net *net, struct sock *sk, struct sk_buff *skb);
+    int         (*input)(struct sk_buff *);
+    int         (*output)(struct net *net, struct sock *sk, struct sk_buff *skb);
 
-	unsigned short		flags;
-#define DST_HOST		0x0001
-#define DST_NOXFRM		0x0002
-#define DST_NOPOLICY		0x0004
-#define DST_NOHASH		0x0008
-#define DST_NOCACHE		0x0010
-#define DST_NOCOUNT		0x0020
-#define DST_FAKE_RTABLE		0x0040
-#define DST_XFRM_TUNNEL		0x0080
-#define DST_XFRM_QUEUE		0x0100
-#define DST_METADATA		0x0200
+    unsigned short      flags;
+#define DST_HOST        0x0001
+#define DST_NOXFRM      0x0002
+#define DST_NOPOLICY        0x0004
+#define DST_NOHASH      0x0008
+#define DST_NOCACHE     0x0010
+#define DST_NOCOUNT     0x0020
+#define DST_FAKE_RTABLE     0x0040
+#define DST_XFRM_TUNNEL     0x0080
+#define DST_XFRM_QUEUE      0x0100
+#define DST_METADATA        0x0200
 
-	unsigned short		pending_confirm;
+    unsigned short      pending_confirm;
 
-	short			error;
+    short           error;
 
-	/* A non-zero value of dst->obsolete forces by-hand validation
-	 * of the route entry.  Positive values are set by the generic
-	 * dst layer to indicate that the entry has been forcefully
-	 * destroyed.
-	 *
-	 * Negative values are used by the implementation layer code to
-	 * force invocation of the dst_ops->check() method.
-	 */
-	short			obsolete;
-#define DST_OBSOLETE_NONE	0
-#define DST_OBSOLETE_DEAD	2
-#define DST_OBSOLETE_FORCE_CHK	-1
-#define DST_OBSOLETE_KILL	-2
-	unsigned short		header_len;	/* more space at head required */
-	unsigned short		trailer_len;	/* space to reserve at tail */
+    /* A non-zero value of dst->obsolete forces by-hand validation
+     * of the route entry.  Positive values are set by the generic
+     * dst layer to indicate that the entry has been forcefully
+     * destroyed.
+     *
+     * Negative values are used by the implementation layer code to
+     * force invocation of the dst_ops->check() method.
+     */
+    short           obsolete;
+#define DST_OBSOLETE_NONE   0
+#define DST_OBSOLETE_DEAD   2
+#define DST_OBSOLETE_FORCE_CHK  -1
+#define DST_OBSOLETE_KILL   -2
+    unsigned short      header_len; /* more space at head required */
+    unsigned short      trailer_len;    /* space to reserve at tail */
 #ifdef CONFIG_IP_ROUTE_CLASSID
-	__u32			tclassid;
+    __u32           tclassid;
 #else
-	__u32			__pad2;
+    __u32           __pad2;
 #endif
 
 #ifdef CONFIG_64BIT
-	struct lwtunnel_state   *lwtstate;
-	/*
-	 * Align __refcnt to a 64 bytes alignment
-	 * (L1_CACHE_SIZE would be too much)
-	 */
-	long			__pad_to_align_refcnt[1];
+    struct lwtunnel_state   *lwtstate;
+    /*
+     * Align __refcnt to a 64 bytes alignment
+     * (L1_CACHE_SIZE would be too much)
+     */
+    long            __pad_to_align_refcnt[1];
 #endif
-	/*
-	 * __refcnt wants to be on a different cache line from
-	 * input/output/ops or performance tanks badly
-	 */
-	atomic_t		__refcnt;	/* client references	*/
-	int			__use;
-	unsigned long		lastuse;
+    /*
+     * __refcnt wants to be on a different cache line from
+     * input/output/ops or performance tanks badly
+     */
+    atomic_t        __refcnt;   /* client references    */
+    int         __use;
+    unsigned long       lastuse;
 #ifndef CONFIG_64BIT
-	struct lwtunnel_state   *lwtstate;
+    struct lwtunnel_state   *lwtstate;
 #endif
-	union {
-		struct dst_entry	*next;
-		struct rtable __rcu	*rt_next;
-		struct rt6_info		*rt6_next;
-		struct dn_route __rcu	*dn_next;
-	};
+    union {
+        struct dst_entry    *next;
+        struct rtable __rcu *rt_next;
+        struct rt6_info     *rt6_next;
+        struct dn_route __rcu   *dn_next;
+    };
 };
 \end{minted}
 
-		\subsection{\mintinline{C}{rtable}}
+        \subsection{\mintinline{C}{rtable}}
 
-			该结构位于\mintinline{C}{/include/net/route.h}中。
+            该结构位于\mintinline{C}{/include/net/route.h}中。
 
-			这是ipv4路由缓存相关结构体，保护了该路由缓存查找的匹配条件，即\mintinline{C}{struct flowi}类型的变量、目的ip、源ip、下一跳网关地址、路由类型等。当然了，还有最重要的，保护了一个协议无关的\mintinline{C}{dst_entry}变量，通过该union能够很好的实现\mintinline{C}{dst_entry}与rtable的转换，而\mintinline{C}{dst_entry}中又包含邻居项相关的信息，实现了路由缓存与邻居子系统的关联。
+            这是ipv4路由缓存相关结构体，保护了该路由缓存查找的匹配条件，即\mintinline{C}{struct flowi}类型的变量、目的ip、源ip、下一跳网关地址、路由类型等。当然了，还有最重要的，保护了一个协议无关的\mintinline{C}{dst_entry}变量，通过该union能够很好的实现\mintinline{C}{dst_entry}与rtable的转换，而\mintinline{C}{dst_entry}中又包含邻居项相关的信息，实现了路由缓存与邻居子系统的关联。
 
 \begin{minted}[linenos]{C}
 struct rtable {
-	struct dst_entry	dst;
+    struct dst_entry    dst;
 
-	int			rt_genid;
-	unsigned int		rt_flags;
-	__u16			rt_type;
-	__u8			rt_is_input;
-	__u8			rt_uses_gateway;
+    int         rt_genid;
+    unsigned int        rt_flags;
+    __u16           rt_type;
+    __u8            rt_is_input;
+    __u8            rt_uses_gateway;
 
-	int			rt_iif;
+    int         rt_iif;
 
-	/* Info on neighbour */
-	__be32			rt_gateway;
+    /* Info on neighbour */
+    __be32          rt_gateway;
 
-	/* Miscellaneous cached information */
-	u32			rt_pmtu;
+    /* Miscellaneous cached information */
+    u32         rt_pmtu;
 
-	u32			rt_table_id;
+    u32         rt_table_id;
 
-	struct list_head	rt_uncached;
-	struct uncached_list	*rt_uncached_list;
+    struct list_head    rt_uncached;
+    struct uncached_list    *rt_uncached_list;
 };
 \end{minted}
 
-		\subsection{flowi}
+        \subsection{flowi}
 
-			该数据结构位于\mintinline{C}{/include/net/flow.h}中，它是与路由查找相关的数据结构。
+            该数据结构位于\mintinline{C}{/include/net/flow.h}中，它是与路由查找相关的数据结构。
 \begin{minted}[linenos]{C}
 struct flowi {
-	union {
-		struct flowi_common	__fl_common;
-		struct flowi4		ip4;
-		struct flowi6		ip6;
-		struct flowidn		dn;
-	} u;
-#define flowi_oif	u.__fl_common.flowic_oif
-#define flowi_iif	u.__fl_common.flowic_iif
-#define flowi_mark	u.__fl_common.flowic_mark
-#define flowi_tos	u.__fl_common.flowic_tos
-#define flowi_scope	u.__fl_common.flowic_scope
-#define flowi_proto	u.__fl_common.flowic_proto
-#define flowi_flags	u.__fl_common.flowic_flags
-#define flowi_secid	u.__fl_common.flowic_secid
-#define flowi_tun_key	u.__fl_common.flowic_tun_key
+    union {
+        struct flowi_common __fl_common;
+        struct flowi4       ip4;
+        struct flowi6       ip6;
+        struct flowidn      dn;
+    } u;
+#define flowi_oif   u.__fl_common.flowic_oif
+#define flowi_iif   u.__fl_common.flowic_iif
+#define flowi_mark  u.__fl_common.flowic_mark
+#define flowi_tos   u.__fl_common.flowic_tos
+#define flowi_scope u.__fl_common.flowic_scope
+#define flowi_proto u.__fl_common.flowic_proto
+#define flowi_flags u.__fl_common.flowic_flags
+#define flowi_secid u.__fl_common.flowic_secid
+#define flowi_tun_key   u.__fl_common.flowic_tun_key
 } __attribute__((__aligned__(BITS_PER_LONG/8)));
 \end{minted}
 %----------------------------------------------------------------------------------------
@@ -1047,7 +1047,7 @@ struct flowi {
 
         \subsection{\mintinline{C}{tcp_options_received}}
 
-		该结构位于\mintinline{C}{/include/linux/tcp.h}中，其主要表述TCP头部的选项字段。
+        该结构位于\mintinline{C}{/include/linux/tcp.h}中，其主要表述TCP头部的选项字段。
 
 \begin{minted}[linenos]{C}
 struct tcp_options_received {
@@ -1296,16 +1296,16 @@ struct tcp_sock {
 struct tcp_request_sock {
     struct inet_request_sock    req;
     const struct tcp_request_sock_ops *af_specific;
-    struct skb_mstamp       snt_synack; 			/* first SYNACK sent time */
+    struct skb_mstamp       snt_synack;             /* first SYNACK sent time */
     bool                tfo_listener;
     u32             txhash;
     u32             rcv_isn;
     u32             snt_isn;
-    u32             last_oow_ack_time; 				/* last SYNACK */
-    u32             rcv_nxt; 						/* the ack # by SYNACK. For
-                          								* FastOpen it's the seq#
-                         								* after data-in-SYN.
-                          							*/
+    u32             last_oow_ack_time;              /* last SYNACK */
+    u32             rcv_nxt;                        /* the ack # by SYNACK. For
+                                                        * FastOpen it's the seq#
+                                                        * after data-in-SYN.
+                                                    */
 };
 \end{minted}
         \subsection{\mintinline{C}{tcp_skb_cb}}
