@@ -1,2 +1,113 @@
 \section{被动关闭}
 \label{sec:passive_close}
+
+	\subsection{基本流程}
+		在正常的被动关闭开始时，TCP控制块目前处于ESTABLISHED状态，此时接收到的TCP段都由\mintinline{C}{tcp_rcv_established}函数来处理，因此FIN段必定要做首部预测，当然预测一定不会通过，所以FIN段是走\textbf{慢速路径}处理的。
+
+		在慢速路径中，首先，首先进行TCP选项的处理(假设存在)，然后根据段的序号检测该FIN段是不是期望接收的段。如果是，则调用\mintinline{C}{tcp_fin}函数进行处理。如果不是，则说明在TCP段传输过程中出现了失序，因此将该FIN段缓存到乱序队列中，等待它之前的所有TCP段都到其后才能作处理。
+
+	\subsection{\mintinline{C}{ESTABLISHED-->CLOSE_WAIT}}
+
+		在这个过程中，服务器段主要接收到了客户端的FIN段，并且跳转到了\mintinline{C}{CLOSE_WAIT}状态。
+		\subsubsection{函数调用关系}
+		
+
+		\subsubsection{\mintinline{C}{tcp_fin}}
+
+			此时，首先调用的传输层的函数为\mintinline{C}{tcp_rcv_established},然后走慢速路径由\mintinline{C}{tcp_data_queue}函数处理。在处理的过程中，如果FIN段时预期接收的段，则调用\mintinline{C}{tcp_fin}函数处理，否则，将该段暂存到乱序队列中，等待它之前的TCP段到齐之后再做处理，这里我们不说函数\mintinline{C}{tcp_rcv_established}与\mintinline{C}{tcp_data_queue}了，这些主要是在数据传送阶段介绍的函数。我们直接介绍\mintinline{C}{tcp_fin}函数。
+
+\begin{minted}[linenos]{C}
+/*
+Location:
+
+	net/ipv4/tcp_input.c
+
+Function:
+
+  	Process the FIN bit. This now behaves as it is supposed to work
+ 	and the FIN takes effect when it is validly part of sequence
+ 	space. Not before when we get holes.
+ 
+ 	If we are ESTABLISHED, a received fin moves us to CLOSE-WAIT
+ 	(and thence onto LAST-ACK and finally, CLOSE, we never enter
+ 	TIME-WAIT)
+ 
+ 	If we are in FINWAIT-1, a received FIN indicates simultaneous
+	close and we go into CLOSING (and later onto TIME-WAIT)
+ 
+ 	If we are in FINWAIT-2, a received FIN moves us to TIME-WAIT.
+
+Parameters:
+
+	sk:
+*/
+static void tcp_fin(struct sock *sk)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+
+	inet_csk_schedule_ack(sk);
+
+	sk->sk_shutdown |= RCV_SHUTDOWN;
+	sock_set_flag(sk, SOCK_DONE);
+
+	switch (sk->sk_state) {
+		case TCP_SYN_RECV:
+		case TCP_ESTABLISHED:
+			/* Move to CLOSE_WAIT */
+			tcp_set_state(sk, TCP_CLOSE_WAIT);
+			inet_csk(sk)->icsk_ack.pingpong = 1;
+			break;
+
+		case TCP_CLOSE_WAIT:
+		case TCP_CLOSING:
+			/* Received a retransmission of the FIN, do
+			 * nothing.
+			 */
+			break;
+		case TCP_LAST_ACK:
+			/* RFC793: Remain in the LAST-ACK state. */
+			break;
+
+		case TCP_FIN_WAIT1:
+			/* This case occurs when a simultaneous close
+			 * happens, we must ack the received FIN and
+			 * enter the CLOSING state.
+			 */
+			tcp_send_ack(sk);
+			tcp_set_state(sk, TCP_CLOSING);
+			break;
+		case TCP_FIN_WAIT2:
+			/* Received a FIN -- send ACK and enter TIME_WAIT. */
+			tcp_send_ack(sk);
+			tcp_time_wait(sk, TCP_TIME_WAIT, 0);
+			break;
+		default:
+			/* Only TCP_LISTEN and TCP_CLOSE are left, in these
+			 * cases we should never reach this piece of code.
+			 */
+			pr_err("%s: Impossible, sk->sk_state=%d\n",
+				   __func__, sk->sk_state);
+			break;
+	}
+
+	/* It _is_ possible, that we have something out-of-order _after_ FIN.
+	 * Probably, we should reset in this case. For now drop them.
+	 */
+	__skb_queue_purge(&tp->out_of_order_queue);
+	if (tcp_is_sack(tp))
+		tcp_sack_reset(&tp->rx_opt);
+	sk_mem_reclaim(sk);
+
+	if (!sock_flag(sk, SOCK_DEAD)) {
+		sk->sk_state_change(sk);
+
+		/* Do not send POLL_HUP for half duplex close. */
+		if (sk->sk_shutdown == SHUTDOWN_MASK ||
+		    sk->sk_state == TCP_CLOSE)
+			sk_wake_async(sk, SOCK_WAKE_WAITD, POLL_HUP);
+		else
+			sk_wake_async(sk, SOCK_WAKE_WAITD, POLL_IN);
+	}
+}
+
+\end{minted}
