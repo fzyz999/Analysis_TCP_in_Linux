@@ -1,19 +1,34 @@
 \section{TCP主动打开-客户}
 \label{sec:tcp_connect_client}
 
-\subsection{基本流程}
-\label{subsec:tcp_connect_flow}
-主动打开是通过connect系统调用来完成的。这一系统调用最终会调用传输层的\mintinline{c}{tcp_v4_connect}函数。
-\subsection{第一次握手——构造并发送SYN包}
-\label{subsec:tcp_connect_syn}
+	\subsection{基本流程}
+	\label{subsec:tcp_connect_flow}
+		客户端的主动打开是通过connect系统调用等一系列操作来完成的，这一系统调用最终会调用传输层的\mintinline{c}{tcp_v4_connect}函数。基本就是客户端发送SYN段，接收SYN+ACK段，最后再次发送ACK段给服务器。
 
-\subsubsection{tcp\_v4\_connect}
-\label{subsubsec:tcp_v4_connect}
+	\subsection{第一次握手——构造并发送SYN包}
+	\label{subsec:tcp_connect_syn}
 
-\mintinline{c}{tcp_v4_connect}的主要作用是进行一系列的判断，初始化传输控制块
-并调用相关函数发送SYN包。
+		\subsubsection{\mintinline{C}{tcp_v4_connect}}
+		\label{subsubsec:tcp_v4_connect}
+
+			\mintinline{c}{tcp_v4_connect}的主要作用是进行一系列的判断，初始化传输控制块
+			并调用相关函数发送SYN包。
 \begin{minted}[linenos]{c}
-/* 这个函数会初始化一个发送用的连接 */
+/*
+Location:
+
+	net/ipv4/tcp_ipv4.c
+
+Function:
+
+	这个函数会初始化一个发送用的连接。
+
+Parameters:
+
+	sk		:传输控制块
+	uaddr	:通用地址结构，包含所属协议字段和相应的地址字段。
+	addrlen	:
+*/
 int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 {
         struct sockaddr_in *usin = (struct sockaddr_in *)uaddr;
@@ -26,7 +41,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
         int err;
         struct ip_options_rcu *inet_opt;
 
-        /* 检验传入的结构体的大小是否满足要求 */
+        /* 检验目的地址长度是否有效 */
         if (addr_len < sizeof(struct sockaddr_in))
                 return -EINVAL;
 
@@ -45,14 +60,15 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
                 nexthop = inet_opt->opt.faddr;
         }
 \end{minted}
-源地址路由是一种特殊的路由策略。一般路由都是通过目的地址来进行的。而有时也需要
-通过源地址来进行路由，例如在有多个网卡等情况下，可以根据源地址来决定走哪个网卡等等。
+			源地址路由是一种特殊的路由策略。一般路由都是通过目的地址来进行的。而有时也需要
+			通过源地址来进行路由，例如在有多个网卡等情况下，可以根据源地址来决定走哪个网卡等等。
 
 \begin{minted}[linenos]{c}
         orig_sport = inet->inet_sport;
         orig_dport = usin->sin_port;
         fl4 = &inet->cork.fl.u.ip4;
-        /* 获取目标的路由缓存项 */
+        /* 获取目标的路由缓存项，如果路由查找命中，则生成一个相应的路由缓存项，这个缓存项不但可以用于
+			当前待发送的SYN段，而且对后续的所有数据包都可以起到一个加速路由查找的作用。*/
         rt = ip_route_connect(fl4, nexthop, inet->inet_saddr,
                               RT_CONN_FLAGS(sk), sk->sk_bound_dev_if,
                               IPPROTO_TCP,
@@ -64,6 +80,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
                 return err;
         }
 
+		/*TCP不能使用类型为组播或多播的路由缓存项*/
         if (rt->rt_flags & (RTCF_MULTICAST | RTCF_BROADCAST)) {
                 ip_rt_put(rt);
                 return -ENETUNREACH;
@@ -108,7 +125,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
          * lock select source port, enter ourselves into the hash tables and
          * complete initialization after this.
          */
-        /* 将TCP的状态设置为SYN-Sent */
+        /* 将TCP的状态设置为SYN_SENT */
         tcp_set_state(sk, TCP_SYN_SENT);
         err = inet_hash_connect(&tcp_death_row, sk);
         if (err)
@@ -116,6 +133,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 
         sk_set_txhash(sk);
 
+		/*如果源端口或者目的端口发生改变，则需要重新查找路由，并用新的路由缓存项更新sk中保存的路由缓存项。*/
         rt = ip_route_newports(fl4, rt, orig_sport, orig_dport,
                                inet->inet_sport, inet->inet_dport, sk);
         if (IS_ERR(rt)) {
@@ -146,9 +164,9 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 
         return 0;
 \end{minted}
-总结起来，\mintinline{c}{tcp_v4_connect}是在根据用户提供的目的地址，
-设置好了传输控制块，为传输做好准备。如果在这一过程中出现错误，则会跳到
-错误处理代码
+			总结起来，\mintinline{c}{tcp_v4_connect}是在根据用户提供的目的地址，
+			设置好了传输控制块，为传输做好准备。如果在这一过程中出现错误，则会跳到
+			错误处理代码。
 \begin{minted}[linenos]{c}
 failure:
         /* 将状态设定为TCP_CLOSE，释放端口，并返回错误值。
@@ -160,9 +178,9 @@ failure:
         return err;
 \end{minted}
 
-\subsubsection{tcp\_ connect}
-上面的\mintinline{c}{tcp_v4_connect}会进行一系列的判断，之后真正构造SYN包的部分
-被放置在了\mintinline{c}{tcp_connect}中。接下来，我们来分析这个函数。
+		\subsubsection{\mintinline{C}{tcp_connect}}
+			上面的\mintinline{c}{tcp_v4_connect}会进行一系列的判断，之后真正构造SYN包的部分
+			被放置在了\mintinline{c}{tcp_connect}中。接下来，我们来分析这个函数。
 
 \begin{minted}[linenos]{c}
 /* 该函数用于构造并发送SYN包 */
