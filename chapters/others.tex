@@ -3,50 +3,12 @@
 \minitoc
 
 \section{SKB}
-    \subsection{\mintinline{C}{skb_transport_header}}
-        
-        该函数位于\mintinline{C}{/include/linux/skbuff.h}中，其功能是根据skb得到其tcphdr的偏移。
-\begin{minted}[linenos]{C}
-static inline unsigned char *skb_transport_header(const struct sk_buff *skb)
-{
-    return skb->head + skb->transport_header;
-}
-\end{minted}
 
-        其中，\mintinline{C}{skb->head}指向缓存区的头部。\mintinline{C}{skb->transport_heade}为传输层相对于缓冲区头部的偏移。
 
 \section{Inet}
-    \subsection{\mintinline{C}{inet_rsk}}
-
-        该函数位于\mintinline{C}{/include/net/inet__sock.h}中，主要的目的就是进行类型转换，将一个\mintinline{C}{request_sock}类型的变量转为\mintinline{C}{inet_request_sock}。
-
-\begin{minted}[linenos]{C}
-static inline struct inet_request_sock *inet_rsk(const struct request_sock *sk)
-{
-    return (struct inet_request_sock *)sk;
-}
-\end{minted}
-    
-    \subsection{\mintinline{C}{inet_csk}}
-        该函数位于\mintinline{C}{/include/net/inet_connection_sock.h}中，主要的目的就是进行类型转换，将一个sock类型的变量转为\mintinline{C}{inet_connection_sock}。
-
-\begin{minted}[linenos]{C}
-static inline struct inet_connection_sock *inet_csk(const struct sock *sk)
-{
-    return (struct inet_connection_sock *)sk;
-}
-\end{minted}
 
 \section{TCP层}
-    \subsection{\mintinline{C}{tcp_hdr}}
 
-        该函数位于\mintinline{C}{/include/linux/tcp.h}中，主要目的就是将\mintinline{C}{sk_buff}类型的变量转化为\mintinline{C}{tcphdr};
-\begin{minted}[linenos]{C}
-static inline struct tcphdr *tcp_hdr(const struct sk_buff *skb)
-{
-    return (struct tcphdr *)skb_transport_header(skb);
-}
-\end{minted}
 
     \subsection{\mintinline{C}{tcp_sk}}
 
