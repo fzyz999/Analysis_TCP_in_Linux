@@ -778,6 +778,66 @@ struct inet_connection_sock {
 };
 \end{minted}
 
+\subsection{\mintinline{c}{inet_timewait_sock}}
+\label{subsec:inet_timewait_sock}
+在进入到等待关闭的状态时，已经不需要完整的传输控制块了。Linux为了减轻在重负载情况下的
+内存消耗，定义了这个简化的结构体。
+\begin{minted}[linenos]{c}
+/* include/net/inet_timewait_sock.h
+ *
+ * 这个结构体的存在主要是为了解决重负载情况下的内存负担问题。
+ */
+struct inet_timewait_sock {
+        /* 此处也使用了sock_common结构体。
+         * Now struct sock also uses sock_common, so please just
+         * don't add nothing before this first member (__tw_common) --acme
+         */
+
+        struct sock_common      __tw_common;
+        /* 通过宏定义为sock_common中的结构体起一个tw开头的别名。 */
+#define tw_family               __tw_common.skc_family
+#define tw_state                __tw_common.skc_state
+#define tw_reuse                __tw_common.skc_reuse
+#define tw_ipv6only             __tw_common.skc_ipv6only
+#define tw_bound_dev_if         __tw_common.skc_bound_dev_if
+#define tw_node                 __tw_common.skc_nulls_node
+#define tw_bind_node            __tw_common.skc_bind_node
+#define tw_refcnt               __tw_common.skc_refcnt
+#define tw_hash                 __tw_common.skc_hash
+#define tw_prot                 __tw_common.skc_prot
+#define tw_net                  __tw_common.skc_net
+#define tw_daddr                __tw_common.skc_daddr
+#define tw_v6_daddr             __tw_common.skc_v6_daddr
+#define tw_rcv_saddr            __tw_common.skc_rcv_saddr
+#define tw_v6_rcv_saddr         __tw_common.skc_v6_rcv_saddr
+#define tw_dport                __tw_common.skc_dport
+#define tw_num                  __tw_common.skc_num
+#define tw_cookie               __tw_common.skc_cookie
+#define tw_dr                   __tw_common.skc_tw_dr
+
+        /* 超时时间 */
+        int                     tw_timeout; 
+        /* 子状态，用于区分FIN_WAIT2和TIMEWAIT */
+        volatile unsigned char  tw_substate; 
+        /* 窗口缩放 */
+        unsigned char           tw_rcv_wscale;
+
+        /* 下面的部分都和inet_sock中的成员相对应的。 */
+        __be16                  tw_sport;
+        kmemcheck_bitfield_begin(flags);
+        /* And these are ours. */
+        unsigned int            tw_kill         : 1,
+                                tw_transparent  : 1,
+                                tw_flowlabel    : 20,   
+                                tw_pad          : 2,    /* 2 bits hole */
+                                tw_tos          : 8;
+        kmemcheck_bitfield_end(flags);
+        /* 超时计时器 */
+        struct timer_list       tw_timer;
+        struct inet_bind_bucket *tw_tb;
+};
+\end{minted}
+
 \subsection{\mintinline{C}{sockaddr & sockaddr_in}}
 \label{subsec:sockaddr_and_sockaddr_in}
 \mintinline{c}{sockaddr}用于描述一个地址。

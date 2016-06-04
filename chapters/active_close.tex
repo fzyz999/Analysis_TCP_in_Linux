@@ -257,11 +257,383 @@ discard:
 \end{minted}
 执行完该段代码后，则进入了\mintinline{text}{FIN_WAIT2}状态。
 
-\subsection{FIN\_WAIT2}
+由于进入到\mintinline{text}{FIN_WAIT2}状态后，不会再处理TCP段的数据。
+因此，出于资源和方面的考虑，采用了一个较小的结构体\mintinline{c}{tcp_timewait_sock}来
+取代正常的TCP传输控制块。\mintinline{text}{TIME_WAIT}也是可作同样处理。
+该替换过程通过函数\mintinline{c}{tcp_time_wait}完成。
+\begin{minted}[linenos]{c}
+void tcp_time_wait(struct sock *sk, int state, int timeo)
+{
+        const struct inet_connection_sock *icsk = inet_csk(sk);
+        const struct tcp_sock *tp = tcp_sk(sk);
+        struct inet_timewait_sock *tw;
+        bool recycle_ok = false;
+
+        if (tcp_death_row.sysctl_tw_recycle && tp->rx_opt.ts_recent_stamp)
+                recycle_ok = tcp_remember_stamp(sk);
+
+        /* 分配空间 */
+        tw = inet_twsk_alloc(sk, &tcp_death_row, state);
+
+        if (tw) {
+                struct tcp_timewait_sock *tcptw = tcp_twsk((struct sock *)tw);
+                const int rto = (icsk->icsk_rto << 2) - (icsk->icsk_rto >> 1);
+                struct inet_sock *inet = inet_sk(sk);
+
+                /* 将值复制给对应的域 */
+                tw->tw_transparent      = inet->transparent;
+                tw->tw_rcv_wscale       = tp->rx_opt.rcv_wscale;
+                tcptw->tw_rcv_nxt       = tp->rcv_nxt;
+                tcptw->tw_snd_nxt       = tp->snd_nxt;
+                tcptw->tw_rcv_wnd       = tcp_receive_window(tp);
+                tcptw->tw_ts_recent     = tp->rx_opt.ts_recent;
+                tcptw->tw_ts_recent_stamp = tp->rx_opt.ts_recent_stamp;
+                tcptw->tw_ts_offset     = tp->tsoffset;
+                tcptw->tw_last_oow_ack_time = 0;
+
+                /* 部分对于ipv6和md5的处理，略过 */
+
+                /* Get the TIME_WAIT timeout firing. */
+                if (timeo < rto)
+                        timeo = rto;
+
+                if (recycle_ok) {
+                        tw->tw_timeout = rto;
+                } else {
+                        tw->tw_timeout = TCP_TIMEWAIT_LEN;
+                        if (state == TCP_TIME_WAIT)
+                                timeo = TCP_TIMEWAIT_LEN;
+                }
+
+                /* 启动定时器 */
+                inet_twsk_schedule(tw, timeo);
+                /* 将timewait控制块插入到哈希表中，替代原有的传输控制块 */
+                __inet_twsk_hashdance(tw, sk, &tcp_hashinfo);
+                inet_twsk_put(tw);
+        } else {
+                /* 当内存不够时，直接关闭连接 */
+                NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_TCPTIMEWAITOVERFLOW);
+        }
+
+        /* 更新一些测量值并关闭原来的传输控制块 */
+        tcp_update_metrics(sk);
+        tcp_done(sk);
+}
+\end{minted}
+
+\subsection{第三次握手——接受FIN}
+此时，由于已经使用了timewait控制块取代了TCP控制块。因此，对应的处理代码不再位于
+\mintinline{c}{tcp_rcv_state_process}中，而是换到了
+\mintinline{c}{tcp_timewait_state_process}函数中。该函数的代码如下，可以看到
+参数中已经变成了\mintinline{c}{inet_timewait_sock}。
+\begin{minted}[linenos]{c}
+enum tcp_tw_status
+tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
+                           const struct tcphdr *th)
+{
+        struct tcp_options_received tmp_opt;
+        struct tcp_timewait_sock *tcptw = tcp_twsk((struct sock *)tw);
+        bool paws_reject = false;
+
+        tmp_opt.saw_tstamp = 0;
+        if (th->doff > (sizeof(*th) >> 2) && tcptw->tw_ts_recent_stamp) {
+                tcp_parse_options(skb, &tmp_opt, 0, NULL);
+
+                if (tmp_opt.saw_tstamp) {
+                        tmp_opt.rcv_tsecr       -= tcptw->tw_ts_offset;
+                        tmp_opt.ts_recent       = tcptw->tw_ts_recent;
+                        tmp_opt.ts_recent_stamp = tcptw->tw_ts_recent_stamp;
+                        paws_reject = tcp_paws_reject(&tmp_opt, th->rst);
+                }
+        }
+\end{minted}
+检测收到的包是否含有时间戳选项，如果有，则进行PAWS相关的检测。之后，开始进行
+\mintinline{text}{TCP_FIN_WAIT2}相关的处理。
+\begin{minted}[linenos]{c}
+        if (tw->tw_substate == TCP_FIN_WAIT2) {
+                /* 重复tcp_rcv_state_process()所进行的所有检测 */
+
+                /* 序号不在窗口内，发送ACK */
+                if (paws_reject ||
+                    !tcp_in_window(TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq,
+                                   tcptw->tw_rcv_nxt,
+                                   tcptw->tw_rcv_nxt + tcptw->tw_rcv_wnd))
+                        return tcp_timewait_check_oow_rate_limit(
+                                tw, skb, LINUX_MIB_TCPACKSKIPPEDFINWAIT2);
+
+                /* 如果收到RST包，则销毁timewait控制块并返回TCP_TW_SUCCESS */
+                if (th->rst)
+                        goto kill;
+
+                /* 如果收到SYN包，则销毁并发送RST */
+                if (th->syn && !before(TCP_SKB_CB(skb)->seq, tcptw->tw_rcv_nxt))
+                        goto kill_with_rst;
+
+                /* 如果收到DACK，则释放该控制块 */
+                if (!th->ack ||
+                    !after(TCP_SKB_CB(skb)->end_seq, tcptw->tw_rcv_nxt) ||
+                    TCP_SKB_CB(skb)->end_seq == TCP_SKB_CB(skb)->seq) {
+                        inet_twsk_put(tw);
+                        return TCP_TW_SUCCESS;
+                }
+
+                /* 之后只有两种情况，有新数据或收到FIN包 */
+                if (!th->fin ||
+                    TCP_SKB_CB(skb)->end_seq != tcptw->tw_rcv_nxt + 1) {
+                        /* 如果收到了新的数据或者序号有问题，
+                         * 则销毁控制块并发送RST。 
+                         */
+kill_with_rst:
+                        inet_twsk_deschedule_put(tw);
+                        return TCP_TW_RST;
+                }
+
+                /* 收到了FIN包，进入TIME_WAIT状态 */
+                tw->tw_substate   = TCP_TIME_WAIT;
+                tcptw->tw_rcv_nxt = TCP_SKB_CB(skb)->end_seq;
+                /* 如果启用了时间戳选项，则设置相关属性 */
+                if (tmp_opt.saw_tstamp) {
+                        tcptw->tw_ts_recent_stamp = get_seconds();
+                        tcptw->tw_ts_recent       = tmp_opt.rcv_tsval;
+                }
+
+                /* 启动TIME_WAIT定时器 */
+                if (tcp_death_row.sysctl_tw_recycle &&
+                    tcptw->tw_ts_recent_stamp &&
+                    tcp_tw_remember_stamp(tw))
+                        inet_twsk_reschedule(tw, tw->tw_timeout);
+                else
+                        inet_twsk_reschedule(tw, TCP_TIMEWAIT_LEN);
+                return TCP_TW_ACK;
+        }
+
+        /* TIME_WAIT阶段处理代码 */
+
+}
+\end{minted}
+
+\subsection{第四次握手——发送ACK}
+在\mintinline{c}{tcp_v4_rcv}中，如果发现目前的连接处于\mintinline{text}{FIN_WAIT2}
+或\mintinline{text}{TIME_WAIT}状态，则调用\mintinline{c}{tcp_timewait_state_process}
+进行处理，根据其返回值，执行相关操作。
+
+\begin{minted}[linenos]{c}
+switch (tcp_timewait_state_process(inet_twsk(sk), skb, th)) {
+        case TCP_TW_SYN: {
+                struct sock *sk2 = inet_lookup_listener(dev_net(skb->dev),
+                                                        &tcp_hashinfo,
+                                                        iph->saddr, th->source,
+                                                        iph->daddr, th->dest,
+                                                        inet_iif(skb));
+                if (sk2) {
+                        inet_twsk_deschedule_put(inet_twsk(sk));
+                        sk = sk2;
+                        goto process;
+                }
+                /* Fall through to ACK */
+        }
+        case TCP_TW_ACK:
+                /* 回复ACK包 */
+                tcp_v4_timewait_ack(sk, skb);
+                break;
+        case TCP_TW_RST:
+                goto no_tcp_socket;
+        case TCP_TW_SUCCESS:;
+}
+\end{minted}
+根据上面的分析，在正常情况下，\mintinline{c}{tcp_timewait_state_process}会返回
+\mintinline{c}{TCP_TW_ACK}，因此，会调用\mintinline{c}{tcp_v4_timewait_ack}。
+该函数如下：
+\begin{minted}[linenos]{c}
+static void tcp_v4_timewait_ack(struct sock *sk, struct sk_buff *skb)
+{
+        struct inet_timewait_sock *tw = inet_twsk(sk);
+        struct tcp_timewait_sock *tcptw = tcp_twsk(sk);
+
+        /* 发送ACK包 */
+        tcp_v4_send_ack(sock_net(sk), skb,
+                        tcptw->tw_snd_nxt, tcptw->tw_rcv_nxt,
+                        tcptw->tw_rcv_wnd >> tw->tw_rcv_wscale,
+                        tcp_time_stamp + tcptw->tw_ts_offset,
+                        tcptw->tw_ts_recent,
+                        tw->tw_bound_dev_if,
+                        tcp_twsk_md5_key(tcptw),
+                        tw->tw_transparent ? IP_REPLY_ARG_NOSRCCHECK : 0,
+                        tw->tw_tos
+                        );
+
+        /* 释放timewait控制块 */
+        inet_twsk_put(tw);
+}
+\end{minted}
+紧接着又将发送ACK包的任务交给\mintinline{c}{tcp_v4_send_ack}来执行。
+\begin{minted}[linenos]{c}
+/* 下面的代码负责在SYN_RECV和TIME_WAIT状态下发送ACK包。
+ *
+ * The code following below sending ACKs in SYN-RECV and TIME-WAIT states
+ * outside socket context is ugly, certainly. What can I do? 
+ */
+static void tcp_v4_send_ack(struct net *net,
+                            struct sk_buff *skb, u32 seq, u32 ack,
+                            u32 win, u32 tsval, u32 tsecr, int oif,
+                            struct tcp_md5sig_key *key,
+                            int reply_flags, u8 tos)
+{
+        const struct tcphdr *th = tcp_hdr(skb);
+        struct {
+                struct tcphdr th;
+                __be32 opt[(TCPOLEN_TSTAMP_ALIGNED >> 2)
+#ifdef CONFIG_TCP_MD5SIG
+                           + (TCPOLEN_MD5SIG_ALIGNED >> 2)
+#endif
+                        ];
+        } rep;
+        struct ip_reply_arg arg;
+
+        memset(&rep.th, 0, sizeof(struct tcphdr));
+        memset(&arg, 0, sizeof(arg));
+
+        /* 构造参数和TCP头部 */
+        arg.iov[0].iov_base = (unsigned char *)&rep;
+        arg.iov[0].iov_len  = sizeof(rep.th);
+        if (tsecr) {
+                rep.opt[0] = htonl((TCPOPT_NOP << 24) | (TCPOPT_NOP << 16) |
+                                   (TCPOPT_TIMESTAMP << 8) |
+                                   TCPOLEN_TIMESTAMP);
+                rep.opt[1] = htonl(tsval);
+                rep.opt[2] = htonl(tsecr);
+                arg.iov[0].iov_len += TCPOLEN_TSTAMP_ALIGNED;
+        }
+
+        /* 交换发送端和接收端 */
+        rep.th.dest    = th->source;
+        rep.th.source  = th->dest;
+        rep.th.doff    = arg.iov[0].iov_len / 4;
+        rep.th.seq     = htonl(seq);
+        rep.th.ack_seq = htonl(ack);
+        rep.th.ack     = 1;
+        rep.th.window  = htons(win);
+
+        /* 略去和MD5相关的部分代码 */
+
+        /* 设定标志位和校验码 */
+        arg.flags = reply_flags;
+        arg.csum = csum_tcpudp_nofold(ip_hdr(skb)->daddr,
+                                      ip_hdr(skb)->saddr, /* XXX */
+                                      arg.iov[0].iov_len, IPPROTO_TCP, 0);
+        arg.csumoffset = offsetof(struct tcphdr, check) / 2;
+        if (oif)
+                arg.bound_dev_if = oif;
+        arg.tos = tos;
+        /* 调用IP层接口将包发出 */
+        ip_send_unicast_reply(*this_cpu_ptr(net->ipv4.tcp_sk),
+                              skb, &TCP_SKB_CB(skb)->header.h4.opt,
+                              ip_hdr(skb)->saddr, ip_hdr(skb)->daddr,
+                              &arg, arg.iov[0].iov_len);
+
+        TCP_INC_STATS_BH(net, TCP_MIB_OUTSEGS);
+}
+\end{minted}
+至此，四次握手就完成了。
 
 \subsection{CLOSING}
 
 \subsection{TIME\_WAIT}
+\begin{minted}[linenos]{c}
+        /*
+         *      Now real TIME-WAIT state.
+         *
+         *      RFC 1122:
+         *      "When a connection is [...] on TIME-WAIT state [...]
+         *      [a TCP] MAY accept a new SYN from the remote TCP to
+         *      reopen the connection directly, if it:
+         *
+         *      (1)  assigns its initial sequence number for the new
+         *      connection to be larger than the largest sequence
+         *      number it used on the previous connection incarnation,
+         *      and
+         *
+         *      (2)  returns to TIME-WAIT state if the SYN turns out
+         *      to be an old duplicate".
+         */
+
+        if (!paws_reject &&
+            (TCP_SKB_CB(skb)->seq == tcptw->tw_rcv_nxt &&
+             (TCP_SKB_CB(skb)->seq == TCP_SKB_CB(skb)->end_seq || th->rst))) {
+                /* In window segment, it may be only reset or bare ack. */
+
+                if (th->rst) {
+                        /* This is TIME_WAIT assassination, in two flavors.
+                         * Oh well... nobody has a sufficient solution to this
+                         * protocol bug yet.
+                         */
+                        if (sysctl_tcp_rfc1337 == 0) {
+kill:
+                                inet_twsk_deschedule_put(tw);
+                                return TCP_TW_SUCCESS;
+                        }
+                }
+                inet_twsk_reschedule(tw, TCP_TIMEWAIT_LEN);
+
+                if (tmp_opt.saw_tstamp) {
+                        tcptw->tw_ts_recent       = tmp_opt.rcv_tsval;
+                        tcptw->tw_ts_recent_stamp = get_seconds();
+                }
+
+                inet_twsk_put(tw);
+                return TCP_TW_SUCCESS;
+        }
+
+        /* Out of window segment.
+
+           All the segments are ACKed immediately.
+
+           The only exception is new SYN. We accept it, if it is
+           not old duplicate and we are not in danger to be killed
+           by delayed old duplicates. RFC check is that it has
+           newer sequence number works at rates <40Mbit/sec.
+           However, if paws works, it is reliable AND even more,
+           newer sequence number works at rates <40Mbit/sec.
+           However, if paws works, it is reliable AND even more,
+           we even may relax silly seq space cutoff.
+
+           RED-PEN: we violate main RFC requirement, if this SYN will appear
+           old duplicate (i.e. we receive RST in reply to SYN-ACK),
+           we must return socket to time-wait state. It is not good,
+           but not fatal yet.
+         */
+
+        if (th->syn && !th->rst && !th->ack && !paws_reject &&
+            (after(TCP_SKB_CB(skb)->seq, tcptw->tw_rcv_nxt) ||
+             (tmp_opt.saw_tstamp &&
+              (s32)(tcptw->tw_ts_recent - tmp_opt.rcv_tsval) < 0))) {
+                u32 isn = tcptw->tw_snd_nxt + 65535 + 2;
+                if (isn == 0)
+                        isn++;
+                TCP_SKB_CB(skb)->tcp_tw_isn = isn;
+                return TCP_TW_SYN;
+        }
+
+        if (paws_reject)
+                NET_INC_STATS_BH(twsk_net(tw), LINUX_MIB_PAWSESTABREJECTED);
+
+        if (!th->rst) {
+                /* In this case we must reset the TIMEWAIT timer.
+                 *
+                 * If it is ACKless SYN it may be both old duplicate
+                 * and new good SYN with random sequence number <rcv_nxt.
+                 * Do not reschedule in the last case.
+                 */
+                if (paws_reject || th->ack)
+                        inet_twsk_reschedule(tw, TCP_TIMEWAIT_LEN);
+
+                return tcp_timewait_check_oow_rate_limit(
+                        tw, skb, LINUX_MIB_TCPACKSKIPPEDTIMEWAIT);
+        }
+        inet_twsk_put(tw);
+        return TCP_TW_SUCCESS;
+}
+\end{minted}
 
 \subsection{同时打开}
 \label{subsec:fin_at_same_time}
