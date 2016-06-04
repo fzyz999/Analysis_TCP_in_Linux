@@ -5,7 +5,7 @@
 	\label{subsec:tcp_connect_flow}
 		客户端的主动打开是通过connect系统调用等一系列操作来完成的，这一系统调用最终会调用传输层的\mintinline{c}{tcp_v4_connect}函数。基本就是客户端发送SYN段，接收SYN+ACK段，最后再次发送ACK段给服务器。
 
-	\subsection{第一次握手——构造并发送SYN包}
+	\subsection{第一次握手：构造并发送SYN包}
 	\label{subsec:tcp_connect_syn}
 
 		\subsubsection{\mintinline{C}{tcp_v4_connect}}
@@ -164,6 +164,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 
         return 0;
 \end{minted}
+
 			总结起来，\mintinline{c}{tcp_v4_connect}是在根据用户提供的目的地址，
 			设置好了传输控制块，为传输做好准备。如果在这一过程中出现错误，则会跳到
 			错误处理代码。
@@ -183,7 +184,20 @@ failure:
 			被放置在了\mintinline{c}{tcp_connect}中。接下来，我们来分析这个函数。
 
 \begin{minted}[linenos]{c}
-/* 该函数用于构造并发送SYN包 */
+/* 
+Location:
+
+	net/ipv4/tcp_output.c
+
+Function:
+
+	该函数用于构造并发送SYN包。
+
+Parameter:
+
+	sk:传输控制块。
+
+ */
 int tcp_connect(struct sock *sk)
 {
         struct tcp_sock *tp = tcp_sk(sk);
@@ -233,7 +247,7 @@ int tcp_connect(struct sock *sk)
 }
 \end{minted}
 
-\subsection{第二次握手——接收SYN+ACK包}
+\subsection{第二次握手：接收SYN+ACK包}
 \label{subsec:recv_synack}
 \mintinline{c}{tcp_rcv_state_process}实现了TCP状态机相对较为核心的一个部分。
 该函数可以处理除ESTABLISHED和TIME\_WAIT状态以外的情况下的接收过程。
