@@ -207,7 +207,7 @@ int tcp_connect(struct sock *sk)
         /* 初始化tcp连接 */
         tcp_connect_init(sk);
 
-        if (unlikely(tp->repair)) {
+        if (unlikely(tp->repair)) {				//what does it mean repair?
                 /* 如果repair位被置1，那么结束TCP连接 */
                 tcp_finish_connect(sk, NULL);
                 return 0;
@@ -249,13 +249,31 @@ int tcp_connect(struct sock *sk)
 
 \subsection{第二次握手：接收SYN+ACK包}
 \label{subsec:recv_synack}
+
 \mintinline{c}{tcp_rcv_state_process}实现了TCP状态机相对较为核心的一个部分。
 该函数可以处理除ESTABLISHED和TIME\_WAIT状态以外的情况下的接收过程。
-这里，我们仅关系主动连接情况下的处理。在\ref{subsubsec:tcp_v4_connect}中，我们
+这里，我们仅关心主动连接情况下的处理。在\ref{subsubsec:tcp_v4_connect}中，我们
 分析源码时得出，客户端发送SYN包后，会将状态机设置为\mintinline{c}{TCP_SYN_SENT}状态。
 因此，我们仅在这里分析该状态下的代码。
 
 \begin{minted}[linenos]{c}
+/*
+Location:
+
+	net/ipv4/tcp_input.c
+
+Function:
+
+	This function implements the receiving procedure of RFC 793 for
+	all states except ESTABLISHED and TIME_WAIT.
+	It's called from both tcp_v4_rcv and tcp_v6_rcv and should be
+	address independent.
+
+Paramater:
+
+	sk:传输控制块。
+	skb:缓存块。
+*/
 int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 {
         struct tcp_sock *tp = tcp_sk(sk);
@@ -295,6 +313,22 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 命名就可以看出，该函数是专门用于处理SYN\_SENT状态下收到的数据的。
 
 \begin{minted}[linenos]{c}
+/*
+Location:
+
+	net/ipv4/tcp_input.c
+
+Function:
+
+	处理syn已经发送的状态。
+
+Parameter:
+
+	sk:传输控制块
+	skb:缓存
+	th:tcp报文的头部
+
+*/
 static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
                                          const struct tcphdr *th)
 {
@@ -333,7 +367,7 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
                         goto reset_and_undo;
                 }
 \end{minted}
-上面的一段根据RFC在判断ACK的值是否在初始发送序号和下一个序号之间，如果不再，则发送一个重置。
+上面的一段根据RFC在判断ACK的值是否在初始发送序号和下一个序号之间，如果不在，则发送一个重置。
 \begin{minted}[linenos]{c}
                 /* 此时，ACK已经被接受了
                  *
@@ -466,7 +500,7 @@ discard:
         }
 \end{minted}
 
-最后是一些异常情况的处理
+最后是一些异常情况的处理。
 \begin{minted}[linenos]{c}
         /* 进入该分支意味着包中不包含ACK */
 
