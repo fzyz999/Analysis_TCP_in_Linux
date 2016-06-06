@@ -1112,12 +1112,32 @@ struct flowi {
 \begin{minted}[linenos]{C}
 struct tcp_options_received {
 /*  PAWS/RTTM data  */
-    long    ts_recent_stamp;  /* Time we stored ts_recent (for aging)        */
-    u32 ts_recent;            /* Time stamp to echo next                     */
-    u32 rcv_tsval;            /* Time stamp value                            */
-    u32 rcv_tsecr;            /* Time stamp echo reply                       */
-    u16     saw_tstamp : 1,   /* Saw TIMESTAMP on last packet                */
-        tstamp_ok : 1,        /* TIMESTAMP seen on SYN packet                */
+    long    ts_recent_stamp;  /* Time we stored ts_recent (for aging)        
+								记录从接收到的段中取出时间戳设置到ts_recent的时间
+								用于检测ts_recent的有效性：如果自从该事件之后已经
+								经过了超过24天的时间，则认为ts_recent已无效。
+							  */
+    u32 ts_recent;            /* Time stamp to echo next                     
+								下一个待发送的TCP段中的时间戳回显值。当一个含有最后
+								发送ACK中确认序号的段到达时，该段中的时间戳被保存在
+								ts_recent中。而当下一个待发送的TCP段的时间戳值是由
+								SKB中TCP控制块的成员when填入的，when字段值是由协议
+								栈取系统时间变量jiffies的低32位。
+					          */
+    u32 rcv_tsval;            /* Time stamp value                            
+								保存最近一次接收到对段的TCP段的时间戳选项中的时间戳值。
+							  */
+    u32 rcv_tsecr;            /* Time stamp echo reply                       
+								保存最近一次接收到对段的TCP段的时间戳选项中的时间戳
+								回显应答。
+							  */
+    u16     saw_tstamp : 1,   /* Saw TIMESTAMP on last packet                
+								标识最近一次接收到的TCP段是否存在TCP时间戳选项，1为有，
+								0为无。
+							  */
+        tstamp_ok : 1,        /* TIMESTAMP seen on SYN packet                
+								标识TCP连接是否启动时间戳选项。
+							  */
         dsack : 1,            /* D-SACK is scheduled                         */
         wscale_ok : 1,        /* Wscale seen on SYN packet                   */
         sack_ok : 4,          /* SACK seen on SYN packet                     */
