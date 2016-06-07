@@ -319,6 +319,73 @@ PAWS的算法流程为：
   \item 其他情况下，将该段视作正常的在窗口中，但顺序不正确的TCP段对待。
 \end{enumerate}
 
+\subsection{RFC1337——TIME-WAIT Assassination Hazards in TCP}
+\label{subsec:rfc1337}
+在TCP连接中，存在\mintinline{text}{TIME_WAIT}这样一个阶段。该阶段会等待2MSL的
+时间，以使得属于当前连接的所有的包都消失掉。这样可以保证再次用相同端口建立连接时，
+不会有属于上一个连接的滞留在网络中的包对连接产生干扰。
+
+\subsubsection{TIME-WAIT Assassination(TWA)现象}
+\label{subsec:time_wait_assassination}
+TCP的连接是由四元组（源IP地址，源端口，目的IP地址，目的端口）唯一决定的。但是，存在
+这样一种情况，当一个TCP连接关闭，随后，客户端又使用相同的IP和端口号向服务端发起连接，
+即产生了和之前的连接一模一样的四元组。此时，如果网络中还存在上一个连接遗留下来的包，
+就会出现各类的问题。对于这一问题，RFC793中定义了相关的机制进行应对。
+
+\begin{enumerate}
+\item 三次握手时会拒绝旧的SYN段，以避免重复建立连接。
+\item 通过判断序列号可以有效地拒绝旧的或者重复的段被错误地接受。
+\item 通过选择合适的ISN(Initial Sequence Number)可以避免旧的连接和新的连接的段
+的序列号空间发生重叠。
+\item TIME-WAIT状态会等待足够长的时间，让旧的滞留在网络上的段因超过其生命周期而消失。
+\item 在系统崩溃后，在系统启动时的静默时间可以使旧的段在连接开始前消失。
+\end{enumerate}
+
+然而，其中的\mintinline{text}{TIME_WAIT}状态的相关机制却是不可靠的。网络中滞留的段
+有可能会使得\mintinline{text}{TIME_WAIT}状态被意外结束。这一现象即是TIME-WAIT 
+Assassination现象。RFC1337中给出了一个实例：
+
+\begin{minted}[linenos]{text}
+       TCP A                                                TCP B
+
+   1.  ESTABLISHED                                          ESTABLISHED
+
+       (Close)
+   2.  FIN-WAIT-1  --> <SEQ=100><ACK=300><CTL=FIN,ACK>  --> CLOSE-WAIT
+
+   3.  FIN-WAIT-2  <-- <SEQ=300><ACK=101><CTL=ACK>      <-- CLOSE-WAIT
+
+                                                            (Close)
+   4.  TIME-WAIT   <-- <SEQ=300><ACK=101><CTL=FIN,ACK>  <-- LAST-ACK
+
+   5.  TIME-WAIT   --> <SEQ=101><ACK=301><CTL=ACK>      --> CLOSED
+
+  - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+   5.1. TIME-WAIT   <--  <SEQ=255><ACK=33> ... old duplicate
+
+   5.2  TIME-WAIT   --> <SEQ=101><ACK=301><CTL=ACK>    -->  ????
+
+   5.3  CLOSED      <-- <SEQ=301><CTL=RST>             <--  ????
+      (prematurely)
+\end{minted}
+可以看到，TCP A收到了一个遗留的ACK包，之后响应了这个ACK。TCP B收到这个莫名其妙的响应后，
+会发出RST报，因为它认为发生了错误。收到RST包后，TCP A的TIME-WAIT状态被终止了。然而，
+此时还没有到2MSL的时间。
+
+\subsubsection{TWA的危险性及现有的解决方法}
+RFC1337中列举了三种TWA现象带来的危险。
+
+\begin{enumerate}
+\item 滞留在网络上的旧的数据段可能被错误地接受。
+\item 新的连接可能陷入到不同步的状态中。如接收到一个旧的ACK包等情况。
+\item 新的连接可能被滞留在网络中的旧的FIN包关闭。或者是SYN-SENT状态下出现了
+意料之外的ACK包等。都可能导致新的连接被终止。
+\end{enumerate}
+
+而解决TWA问题的方法较为简单，直接在TIME-WAIT阶段忽略掉所有的RST段即可。
+在\ref{subsec:time_wait}中的代码中可以看到，Linux正是采用了这种方法来解决该问题。
+
 \subsection{RFC3168——The Addition of Explicit Congestion Notification (ECN) to IP}
 \label{subsec:rfc3168}
 该RFC为TCP/IP网络引入了一种新的用于处理网络拥塞问题的方法。在以往的TCP中，
