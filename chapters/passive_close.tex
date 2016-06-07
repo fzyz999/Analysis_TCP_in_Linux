@@ -1,146 +1,147 @@
 \section{被动关闭}
 \label{sec:passive_close}
 
-	\subsection{基本流程}
-		在正常的被动关闭开始时，TCP控制块目前处于ESTABLISHED状态，此时接收到的TCP段都由\mintinline{C}{tcp_rcv_established}函数来处理，因此FIN段必定要做首部预测，当然预测一定不会通过，所以FIN段是走\textbf{慢速路径}处理的。
+    \subsection{基本流程}
+        在正常的被动关闭开始时，TCP控制块目前处于ESTABLISHED状态，此时接收到的TCP段都由\mintinline{C}{tcp_rcv_established}函数来处理，因此FIN段必定要做首部预测，当然预测一定不会通过，所以FIN段是走\textbf{慢速路径}处理的。
 
-		在慢速路径中，首先，首先进行TCP选项的处理(假设存在)，然后根据段的序号检测该FIN段是不是期望接收的段。如果是，则调用\mintinline{C}{tcp_fin}函数进行处理。如果不是，则说明在TCP段传输过程中出现了失序，因此将该FIN段缓存到乱序队列中，等待它之前的所有TCP段都到其后才能作处理。
+        在慢速路径中，首先，首先进行TCP选项的处理(假设存在)，然后根据段的序号检测该FIN段是不是期望接收的段。如果是，则调用\mintinline{C}{tcp_fin}函数进行处理。如果不是，则说明在TCP段传输过程中出现了失序，因此将该FIN段缓存到乱序队列中，等待它之前的所有TCP段都到其后才能作处理。
 
-	\subsection{\mintinline{C}{第一次握手：接收FIN}}
+    \subsection{\mintinline{C}{第一次握手：接收FIN}}
 
-		在这个过程中，服务器段主要接收到了客户端的FIN段，并且跳转到了\mintinline{C}{CLOSE_WAIT}状态。
-		\subsubsection{函数调用关系}
-		
+        在这个过程中，服务器段主要接收到了客户端的FIN段，并且跳转到了\mintinline{C}{CLOSE_WAIT}状态。
+        \subsubsection{函数调用关系}
+        
 
-		\subsubsection{\mintinline{C}{tcp_fin}}
+        \subsubsection{\mintinline{C}{tcp_fin}}
+        \label{subsubsec:tcp_fin}
 
-			此时，首先调用的传输层的函数为\mintinline{C}{tcp_rcv_established},然后走慢速路径由\mintinline{C}{tcp_data_queue}函数处理。在处理的过程中，如果FIN段时预期接收的段，则调用\mintinline{C}{tcp_fin}函数处理，否则，将该段暂存到乱序队列中，等待它之前的TCP段到齐之后再做处理，这里我们不说函数\mintinline{C}{tcp_rcv_established}与\mintinline{C}{tcp_data_queue}了，这些主要是在数据传送阶段介绍的函数。我们直接介绍\mintinline{C}{tcp_fin}函数。
+            此时，首先调用的传输层的函数为\mintinline{C}{tcp_rcv_established},然后走慢速路径由\mintinline{C}{tcp_data_queue}函数处理。在处理的过程中，如果FIN段时预期接收的段，则调用\mintinline{C}{tcp_fin}函数处理，否则，将该段暂存到乱序队列中，等待它之前的TCP段到齐之后再做处理，这里我们不说函数\mintinline{C}{tcp_rcv_established}与\mintinline{C}{tcp_data_queue}了，这些主要是在数据传送阶段介绍的函数。我们直接介绍\mintinline{C}{tcp_fin}函数。
 
 \begin{minted}[linenos]{C}
 /*
 Location:
 
-	net/ipv4/tcp_input.c
+    net/ipv4/tcp_input.c
 
 Function:
 
-  	Process the FIN bit. This now behaves as it is supposed to work
- 	and the FIN takes effect when it is validly part of sequence
- 	space. Not before when we get holes.
+    Process the FIN bit. This now behaves as it is supposed to work
+    and the FIN takes effect when it is validly part of sequence
+    space. Not before when we get holes.
  
- 	If we are ESTABLISHED, a received fin moves us to CLOSE-WAIT
- 	(and thence onto LAST-ACK and finally, CLOSE, we never enter
- 	TIME-WAIT)
+    If we are ESTABLISHED, a received fin moves us to CLOSE-WAIT
+    (and thence onto LAST-ACK and finally, CLOSE, we never enter
+    TIME-WAIT)
  
- 	If we are in FINWAIT-1, a received FIN indicates simultaneous
-	close and we go into CLOSING (and later onto TIME-WAIT)
+    If we are in FINWAIT-1, a received FIN indicates simultaneous
+    close and we go into CLOSING (and later onto TIME-WAIT)
  
- 	If we are in FINWAIT-2, a received FIN moves us to TIME-WAIT.
+    If we are in FINWAIT-2, a received FIN moves us to TIME-WAIT.
 
 Parameters:
 
-	sk:传输控制块
+    sk:传输控制块
 */
 static void tcp_fin(struct sock *sk)
 {
-	struct tcp_sock *tp = tcp_sk(sk);
+    struct tcp_sock *tp = tcp_sk(sk);
 
-	inet_csk_schedule_ack(sk);
+    inet_csk_schedule_ack(sk);
 
-	sk->sk_shutdown |= RCV_SHUTDOWN;
-	sock_set_flag(sk, SOCK_DONE);
+    sk->sk_shutdown |= RCV_SHUTDOWN;
+    sock_set_flag(sk, SOCK_DONE);
 \end{minted}
 
-			首先，接收到FIN段后需要调度、发送ACK。
+            首先，接收到FIN段后需要调度、发送ACK。
 
-			其次，设置了传输控制块的套接口状态为\mintinline{C}{RCV_SHUTDOWN}，表示服务器端不允许在接收数据。
-	
-			最后，设置传输控制块的\mintinline{C}{SOCK_DONE}标志，表示TCP会话结束。
+            其次，设置了传输控制块的套接口状态为\mintinline{C}{RCV_SHUTDOWN}，表示服务器端不允许在接收数据。
+    
+            最后，设置传输控制块的\mintinline{C}{SOCK_DONE}标志，表示TCP会话结束。
 
-			当然，接收到FIN字段的时候，TCP有可能并不是处于\mintinline{C}{TCP_ESTABLISHED}的，这里我们一并介绍了。
+            当然，接收到FIN字段的时候，TCP有可能并不是处于\mintinline{C}{TCP_ESTABLISHED}的，这里我们一并介绍了。
 
 \begin{minted}[linenos]{C}
-	switch (sk->sk_state) {
-		case TCP_SYN_RECV:
-		case TCP_ESTABLISHED:
-			/* Move to CLOSE_WAIT */
-			tcp_set_state(sk, TCP_CLOSE_WAIT);
-			inet_csk(sk)->icsk_ack.pingpong = 1;			//what does it means pingpong?  to do.
-			break;
+    switch (sk->sk_state) {
+        case TCP_SYN_RECV:
+        case TCP_ESTABLISHED:
+            /* Move to CLOSE_WAIT */
+            tcp_set_state(sk, TCP_CLOSE_WAIT);
+            inet_csk(sk)->icsk_ack.pingpong = 1;            //what does it means pingpong?  to do.
+            break;
 \end{minted}
 
-			如果TCP块处于\mintinline{C}{TCP_SYN_RECV}或者\mintinline{C}{TCP_ESTABLISHED}状态，接收到FIN之后，将状态设置为\mintinline{C}{CLOSE_WAIT},并确定延时发送ack。
+            如果TCP块处于\mintinline{C}{TCP_SYN_RECV}或者\mintinline{C}{TCP_ESTABLISHED}状态，接收到FIN之后，将状态设置为\mintinline{C}{CLOSE_WAIT},并确定延时发送ack。
 \begin{minted}[linenos]{C}
-		case TCP_CLOSE_WAIT:
-		case TCP_CLOSING:
-			/* Received a retransmission of the FIN, do
-			 * nothing.
-			 */
-			break;
-		case TCP_LAST_ACK:
-			/* RFC793: Remain in the LAST-ACK state. */
-			break;
+        case TCP_CLOSE_WAIT:
+        case TCP_CLOSING:
+            /* Received a retransmission of the FIN, do
+             * nothing.
+             */
+            break;
+        case TCP_LAST_ACK:
+            /* RFC793: Remain in the LAST-ACK state. */
+            break;
 \end{minted}
 
-			在\mintinline{C}{TCP_CLOSE_WAIT}或者\mintinline{C}{TCP_CLOSING}状态下收到的FIN为重复收到的FIN，忽略。
+            在\mintinline{C}{TCP_CLOSE_WAIT}或者\mintinline{C}{TCP_CLOSING}状态下收到的FIN为重复收到的FIN，忽略。
 
-			在\mintinline{C}{TCP_LAST_ACK}状态下正在等待最后的ACK字段，故而忽略。
+            在\mintinline{C}{TCP_LAST_ACK}状态下正在等待最后的ACK字段，故而忽略。
 
 \begin{minted}[linenos]{C}
-		case TCP_FIN_WAIT1:
-			/* This case occurs when a simultaneous close
-			 * happens, we must ack the received FIN and
-			 * enter the CLOSING state.
-			 */
-			tcp_send_ack(sk);
-			tcp_set_state(sk, TCP_CLOSING);
-			break;
+        case TCP_FIN_WAIT1:
+            /* This case occurs when a simultaneous close
+             * happens, we must ack the received FIN and
+             * enter the CLOSING state.
+             */
+            tcp_send_ack(sk);
+            tcp_set_state(sk, TCP_CLOSING);
+            break;
 \end{minted}
 
-			显然，只有客户端和服务器端同时关闭的情况下，才会出现这种状态，而且此时双方必须都发送ACK字段，并且将状态置为\mintinline{C}{TCP_CLOSING}。
+            显然，只有客户端和服务器端同时关闭的情况下，才会出现这种状态，而且此时双方必须都发送ACK字段，并且将状态置为\mintinline{C}{TCP_CLOSING}。
 
 \begin{minted}[linenos]{C}
-		case TCP_FIN_WAIT2:
-			/* Received a FIN -- send ACK and enter TIME_WAIT. */
-			tcp_send_ack(sk);
-			tcp_time_wait(sk, TCP_TIME_WAIT, 0);
-			break;
-		default:
-			/* Only TCP_LISTEN and TCP_CLOSE are left, in these
-			 * cases we should never reach this piece of code.
-			 */
-			pr_err("%s: Impossible, sk->sk_state=%d\n",
-				   __func__, sk->sk_state);
-			break;
-	}
+        case TCP_FIN_WAIT2:
+            /* Received a FIN -- send ACK and enter TIME_WAIT. */
+            tcp_send_ack(sk);
+            tcp_time_wait(sk, TCP_TIME_WAIT, 0);
+            break;
+        default:
+            /* Only TCP_LISTEN and TCP_CLOSE are left, in these
+             * cases we should never reach this piece of code.
+             */
+            pr_err("%s: Impossible, sk->sk_state=%d\n",
+                   __func__, sk->sk_state);
+            break;
+    }
 \end{minted}
 
-			在\mintinline{C}{TCP_FIN_WAIT2}状态下接收到FIN段，根据TCP状态转移图应该发送ACK响应服务器端。
+            在\mintinline{C}{TCP_FIN_WAIT2}状态下接收到FIN段，根据TCP状态转移图应该发送ACK响应服务器端。
 
-			在其他状态，显然是不能收到FIN段的。
+            在其他状态，显然是不能收到FIN段的。
 
 \begin{minted}[linenos]{C}
-	/* It _is_ possible, that we have something out-of-order _after_ FIN.
-	 * Probably, we should reset in this case. For now drop them.
-	 */
-	__skb_queue_purge(&tp->out_of_order_queue);
-	if (tcp_is_sack(tp))
-		tcp_sack_reset(&tp->rx_opt);
-	sk_mem_reclaim(sk);
+    /* It _is_ possible, that we have something out-of-order _after_ FIN.
+     * Probably, we should reset in this case. For now drop them.
+     */
+    __skb_queue_purge(&tp->out_of_order_queue);
+    if (tcp_is_sack(tp))
+        tcp_sack_reset(&tp->rx_opt);
+    sk_mem_reclaim(sk);
 
-	if (!sock_flag(sk, SOCK_DEAD)) {
-		sk->sk_state_change(sk);
+    if (!sock_flag(sk, SOCK_DEAD)) {
+        sk->sk_state_change(sk);
 
-		/* Do not send POLL_HUP for half duplex close. */
-		if (sk->sk_shutdown == SHUTDOWN_MASK ||
-		    sk->sk_state == TCP_CLOSE)
-			sk_wake_async(sk, SOCK_WAKE_WAITD, POLL_HUP);
-		else
-			sk_wake_async(sk, SOCK_WAKE_WAITD, POLL_IN);
-	}
+        /* Do not send POLL_HUP for half duplex close. */
+        if (sk->sk_shutdown == SHUTDOWN_MASK ||
+            sk->sk_state == TCP_CLOSE)
+            sk_wake_async(sk, SOCK_WAKE_WAITD, POLL_HUP);
+        else
+            sk_wake_async(sk, SOCK_WAKE_WAITD, POLL_IN);
+    }
 }
 \end{minted}
 
-			清空接到的乱序队列上的段，再清除有关SACK的信息和标志，最后释放已接收队列中的段。
+            清空接到的乱序队列上的段，再清除有关SACK的信息和标志，最后释放已接收队列中的段。
 
-			如果此时套接口未处于DEAD状态，则唤醒等待该套接口的进程。如果在发送接收方向上都进行了关闭，或者此时传输控制块处于CLOSE状态，则唤醒异步等待该套接口的进程，通知它们该连接已经停止，否则通知它们连接可以进行写操作。
+            如果此时套接口未处于DEAD状态，则唤醒等待该套接口的进程。如果在发送接收方向上都进行了关闭，或者此时传输控制块处于CLOSE状态，则唤醒异步等待该套接口的进程，通知它们该连接已经停止，否则通知它们连接可以进行写操作。
