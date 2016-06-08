@@ -25,13 +25,16 @@ Function:
 
 Parameters:
 
-	sk		:传输控制块
-	uaddr	:通用地址结构，包含所属协议字段和相应的地址字段。
+	sk:传输控制块
+	uaddr:通用地址结构，包含所属协议字段和相应的地址字段。
 	addrlen	:
 */
 int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 {
-        struct sockaddr_in *usin = (struct sockaddr_in *)uaddr;
+		/*
+			sockaddr_in结构体用于描述一个Internet (IP) 套接字的地址		
+		*/
+        struct sockaddr_in *usin = (struct sockaddr_in *)uaddr;	
         struct inet_sock *inet = inet_sk(sk);
         struct tcp_sock *tp = tcp_sk(sk);
         __be16 orig_sport, orig_dport;
@@ -43,11 +46,11 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 
         /* 检验目的地址长度是否有效 */
         if (addr_len < sizeof(struct sockaddr_in))
-                return -EINVAL;
+                return -EINVAL;					//Invalid argument 错误码为22
 
         /* 检验协议族是否正确 */
-        if (usin->sin_family != AF_INET)
-                return -EAFNOSUPPORT;
+        if (usin->sin_family != AF_INET)		//IPV4地址域
+                return -EAFNOSUPPORT;			//Address family not supported by protocol
 
         /* 将下一跳地址和目的地址暂时设置为用户传入的IP地址 */
         nexthop = daddr = usin->sin_addr.s_addr;
