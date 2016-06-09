@@ -38,7 +38,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
         struct inet_sock *inet = inet_sk(sk);
         struct tcp_sock *tp = tcp_sk(sk);
         __be16 orig_sport, orig_dport;
-        __be32 daddr, nexthop;
+        __be32 daddr, nexthop;					//网络协议主要使用大端数据，be32 means 32 bits stored with big-endian
         struct flowi4 *fl4;
         struct rtable *rt;
         int err;
