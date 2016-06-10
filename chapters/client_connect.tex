@@ -76,9 +76,10 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
                               RT_CONN_FLAGS(sk), sk->sk_bound_dev_if,
                               IPPROTO_TCP,
                               orig_sport, orig_dport, sk);
-        if (IS_ERR(rt)) {
+		/*判断指针是否有效*/        
+		if (IS_ERR(rt)) {
                 err = PTR_ERR(rt);
-                if (err == -ENETUNREACH)
+                if (err == -ENETUNREACH)	//Network is unreachable
                         IP_INC_STATS(sock_net(sk), IPSTATS_MIB_OUTNOROUTES);
                 return err;
         }
@@ -86,7 +87,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 		/*TCP不能使用类型为组播或多播的路由缓存项*/
         if (rt->rt_flags & (RTCF_MULTICAST | RTCF_BROADCAST)) {
                 ip_rt_put(rt);
-                return -ENETUNREACH;
+                return -ENETUNREACH;		//Network is unreachable
         }
 
         /* 如果没有开启源路由功能，则采用查找到的缓存项 */
