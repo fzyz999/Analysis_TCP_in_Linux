@@ -1,0 +1,182 @@
+\section{拥塞控制引擎}
+\label{sec:congestion_control_engine}
+在Linux中,实现了多种不同的拥塞控制算法。为了简化拥塞控制算法的编写，Linux的开发
+者们实现了一套拥塞控制引擎或者说是框架，专门用于实现拥塞控制算法。只要实现必要的
+接口，即可完成一套拥塞控制算法，极大地简化了拥塞控制算法的开发工作。
+
+\subsection{接口}
+\label{subsec:congestion_control_interface}
+
+\subsubsection{\mintinline{c}{tcp_congestion_ops}}
+\mintinline{c}{struct tcp_congestion_ops}结构体描述了一套拥塞控制算法所需要
+支持的操作。其原型如下：
+\begin{minted}[linenos]{c}
+struct tcp_congestion_ops {
+        struct list_head        list;
+        u32 key; /* 算法名称的哈希值 */
+        u32 flags;
+
+        /* 初始化私有数据 (可选) */
+        void (*init)(struct sock *sk);
+        /* 释放私有数据  (可选) */
+        void (*release)(struct sock *sk);
+
+        /* 返回ssthresh (必须实现) */
+        u32 (*ssthresh)(struct sock *sk);
+        /* 计算新的拥塞窗口 (必须实现) */
+        void (*cong_avoid)(struct sock *sk, u32 ack, u32 acked);
+        /* 在改变ca_state前会被调用 (可选) */
+        void (*set_state)(struct sock *sk, u8 new_state);
+        /* 处理拥塞窗口相关的事件 (可选) */
+        void (*cwnd_event)(struct sock *sk, enum tcp_ca_event ev);
+        /* 处理ACK包到达事件 (可选) */
+        void (*in_ack_event)(struct sock *sk, u32 flags);
+        /* 用于撤销“缩小拥塞窗口” (可选) */
+        u32  (*undo_cwnd)(struct sock *sk);
+        /* 有段被确认时会调用此函数 (可选) */
+        void (*pkts_acked)(struct sock *sk, u32 num_acked, s32 rtt_us);
+        /* 为inet_diag准备的获取信息的接口 (可选) */
+        size_t (*get_info)(struct sock *sk, u32 ext, int *attr,
+                           union tcp_cc_info *info);
+
+        /* 拥塞控制算法的名称 */
+        char            name[TCP_CA_NAME_MAX];
+        struct module   *owner;
+};
+\end{minted}
+
+\subsubsection{拥塞控制事件}
+为了将拥塞控制算法相关的部分抽取处理，Linux的开发者们采用了事件机制，即在发生和拥塞控制
+相关的事件后，调用拥塞控制算法中的事件处理函数，以通知拥塞控制模块，具体发生了什么。
+而作为实现拥塞控制算法的开发者，则无需关心事件是如何发生的，以及相关的实现，只要
+专注于事件所对应的需要执行的算法即可。
+
+当发生相关事件是会调用\mintinline{c}{cwnd_event}函数。该函数会传入一个枚举值作为参数，
+代表具体发生的事件。该枚举值的定义如下：
+\begin{minted}[linenos]{c}
+enum tcp_ca_event {
+        /* 首次传输（无已发出但还未确认的包） */
+        CA_EVENT_TX_START,
+        /* 拥塞窗口重启 */
+        CA_EVENT_CWND_RESTART,  
+        /* 拥塞恢复结束 */
+        CA_EVENT_COMPLETE_CWR,
+        /* loss超时 */
+        CA_EVENT_LOSS,          
+        /* ECT 被设置了，但 CE 没有被置位 */
+        CA_EVENT_ECN_NO_CE,     
+        /* 收到了设置了 CE 位的IP报文 */
+        CA_EVENT_ECN_IS_CE,     
+        /* 延迟确认已被发送 */
+        CA_EVENT_DELAYED_ACK,
+        CA_EVENT_NON_DELAYED_ACK,
+};
+\end{minted}
+
+当收到了ACK包时，会调用\mintinline{c}{in_ack_event()}。此时也会传递一些信息给拥塞
+控制算法。相关的定义如下：
+\begin{minted}[linenos]{c}
+enum tcp_ca_ack_event_flags {
+        CA_ACK_SLOWPATH         = (1 << 0),     /* 在慢速路径中处理 */
+        CA_ACK_WIN_UPDATE       = (1 << 1),     /* 该ACK更新了窗口大小 */
+        CA_ACK_ECE              = (1 << 2),     /* ECE 位被设置了 */
+};
+\end{minted}
+
+
+\subsubsection{\mintinline{c}{tcp_register_congestion_control()}}
+该函数用于注册一个新的拥塞控制算法。
+\begin{minted}[linenos]{c}
+int tcp_register_congestion_control(struct tcp_congestion_ops *ca)
+{
+        int ret = 0;
+
+        /* 所有的算法都必须实现 ssthresh 和 cong_avoid ops */
+        if (!ca->ssthresh || !ca->cong_avoid) {
+                pr_err("%s does not implement required ops\n", ca->name);
+                /* 如果没实现，则返回错误 */
+                return -EINVAL;
+        }
+
+        /* 计算算法名称的哈希值，加快比对速度。 */
+        ca->key = jhash(ca->name, sizeof(ca->name), strlen(ca->name));
+
+        spin_lock(&tcp_cong_list_lock);
+        if (ca->key == TCP_CA_UNSPEC || tcp_ca_find_key(ca->key)) {
+                /* 如果已经注册被注册过了，或者恰巧hash值重了(极低概率)，
+                 * 那么返回错误值。
+                 */
+                pr_notice("%s already registered or non-unique key\n",
+                          ca->name);
+                ret = -EEXIST;
+        } else {
+                /* 将算法添加到链表中 */
+                list_add_tail_rcu(&ca->list, &tcp_cong_list);
+                pr_debug("%s registered\n", ca->name);
+        }
+        spin_unlock(&tcp_cong_list_lock);
+
+        return ret;
+}
+\end{minted}
+其中，\mintinline{c}{tcp_ca_find_key}函数通过哈希值来查找名称。jash是一种久经考验的
+性能极佳的哈希算法。据称，其计算速度和产生的分布都很漂亮。这里计算哈希值正是使用了这种
+哈希算法。早些版本的内核查找拥塞控制算法，是通过名字直接查找的。
+\begin{minted}[linenos]{c}
+/* Simple linear search, don't expect many entries! */
+static struct tcp_congestion_ops *tcp_ca_find(const char *name)
+{
+        struct tcp_congestion_ops *e;
+
+        list_for_each_entry_rcu(e, &tcp_cong_list, list) {
+                if (strcmp(e->name, name) == 0)
+                        return e;
+        }
+
+        return NULL;
+}
+\end{minted}
+可以看到，每次查找都要对比字符串，效率较低。这里为了加快查找速度，对名字进行了哈希，
+并通过哈希值的比对来进行查找。
+\begin{minted}[linenos]{c}
+/* Simple linear search, not much in here. */
+struct tcp_congestion_ops *tcp_ca_find_key(u32 key)
+{
+        struct tcp_congestion_ops *e;
+
+        list_for_each_entry_rcu(e, &tcp_cong_list, list) {
+                if (e->key == key)
+                        return e;
+        }
+
+        return NULL;
+}
+\end{minted}
+一般情况下，额外的拥塞控制算法都作为单独的模块实现。在模块初始化时，调用
+\mintinline{c}{tcp_register_congestion_control}函数来进行注册，
+之后，即可使用新的拥塞控制算法。
+
+\subsubsection{\mintinline{c}{tcp_unregister_congestion_control()}}
+与注册相对应的，自然有注销一个拥塞控制算法的方法。
+\mintinline{c}{tcp_unregister_congestion_control}用于撤销一个拥塞控制算法。
+其实现如下：
+\begin{minted}[linenos]{c}
+void tcp_unregister_congestion_control(struct tcp_congestion_ops *ca)
+{
+        spin_lock(&tcp_cong_list_lock);
+        /* 删除该拥塞控制算法 */
+        list_del_rcu(&ca->list);
+        spin_unlock(&tcp_cong_list_lock);
+
+        /* Wait for outstanding readers to complete before the
+         * module gets removed entirely.
+         *
+         * A try_module_get() should fail by now as our module is
+         * in "going" state since no refs are held anymore and
+         * module_exit() handler being called.
+         */
+        synchronize_rcu();
+}
+\end{minted}
+
+\subsection{CUBIC拥塞控制算法}
