@@ -2,7 +2,8 @@
 
 \minitoc
 	\section{GNU/LINUX}
-		\subsection{错误码}
+		\subsection{错误处理}
+			\subsubsection{错误码}
 \begin{minted}[linenos]{C}
 /*
 Location:
@@ -165,7 +166,60 @@ Function:
 
 #define EHWPOISON	133	/* Memory page has hardware error */
 \end{minted}
+			\subsubsection{\mintinline{C}{IS_ERR,PTR_ERR,ERR_PTR}}
 
+				相关定义如下：
+\begin{minted}[linenos]{C}
+/*
+Location:
+
+	include/linux/err.h
+
+Description:
+ 	Kernel pointers have redundant information, so we can use a
+	scheme where we can return either an error code or a normal
+	pointer with the same return value.
+
+	This should be a per-architecture thing, to allow different
+	error and pointer decisions.
+
+*/
+#define MAX_ERRNO	4095
+
+#ifndef __ASSEMBLY__
+
+#define IS_ERR_VALUE(x) unlikely((x) >= (unsigned long)-MAX_ERRNO)
+
+static inline void * __must_check ERR_PTR(long error)
+{
+	return (void *) error;
+}
+
+static inline long __must_check PTR_ERR(__force const void *ptr)
+{
+	return (long) ptr;
+}
+
+static inline bool __must_check IS_ERR(__force const void *ptr)
+{
+	return IS_ERR_VALUE((unsigned long)ptr);
+}
+
+static inline bool __must_check IS_ERR_OR_NULL(__force const void *ptr)
+{
+	return !ptr || IS_ERR_VALUE((unsigned long)ptr);
+}
+\end{minted}
+
+
+				要想明白上述的代码，首先要理解内核空间。所有的驱动程序都是运行在内核空间，内核空间虽然很大，但总是有限的，而在这有限的空间中，其最后一个page是专门保留的，也就是说一般人不可能用到内核空间最后一个page的指针。换句话说，你在写设备驱动程序的过程中，涉及到的任何一个指针，必然有三种情况：有效指针；NULL，空指针；错误指针，或者说无效指针。
+
+				而所谓的错误指针就是指其已经到达了最后一个page，即内核用最后一页捕捉错误。比如对于32bit的系统来说，内核空间最高地址0xffffffff，那么最后一个page就是指的0xfffff000~0xffffffff(假设4k一个page)，这段地址是被保留的。内核空间为什么留出最后一个page？我们知道一个page可能是4k，也可能是更多，比如8k，但至少它也是4k，留出一个page出来就可以让我们把内核空间的指针来记录错误了。内核返回的指针一般是指向页面的边界(4k边界)，即\mintinline{C}{ptr & 0xfff == 0}。如果你发现你的一个指针指向这个范围中的某个地址，那么你的代码肯定出错了。IS\_ERR()就是判断指针是否有错，如果指针并不是指向最后一个page，那么没有问题；如果指针指向了最后一个page，那么说明实际上这不是一个有效的指针，这个指针里保存的实际上是一种错误代码。而通常很常用的方法就是先用IS\_ERR()来判断是否是错误，然后如果是，那么就调用PTR\_ERR()来返回这个错误代码。因此，判断一个指针是不是有效的，我们可以调用宏IS\_ERR\_VALUE，即判断指针是不是在（0xfffff000，0xffffffff)之间，因此，可以用IS\_ERR()来判断内核函数的返回值是不是一个有效的指针。注意这里用unlikely()的用意！
+
+				至于PTR\_ERR(), ERR\_PTR()，只是强制转换以下而已。而PTR\_ERR()只是返回错误代码，也就是提供一个信息给调用者，如果你只需要知道是否出错，而不在乎因为什么而出错，那你当然不用调用PTR\_ERR()了。
+
+				如果指针指向了最后一个page，那么说明实际上这不是一个有效的指针。这个指针里保存的实际上是一种错误代码。而通常很常用的方法就是先用IS\_ERR()来判断是否是错误，然后如果是，那么就调用PTR\_ERR()来返回这个错误代码。
+	
 	\section{C语言}
 		\subsection{结构体初始化}
 \begin{minted}[linenos]{C}
@@ -307,6 +361,18 @@ typedef __u64 __bitwise __be64;
 \end{minted}
 		
 	\section{操作系统}
+		\subsection{RCU}
+			RCU(Read-Copy Update),是数据同步的一种方式，在当前的Linux内核中发挥着重要的作用。RCU主要针对的数据对象是链表，目的是提高遍历读取数据的效率，为了达到目的使用RCU机制读取数据的时候不对链表进行耗时的加锁操作。这样在同一时间可以有多个线程同时读取该链表，并且允许一个线程对链表进行修改（修改的时候，需要加锁）。RCU适用于需要频繁的读取数据，而相应修改数据并不多的情景，例如在文件系统中，经常需要查找定位目录，而对目录的修改相对来说并不多，这就是RCU发挥作用的最佳场景。
+
+			Linux内核源码当中,关于RCU的文档比较齐全，你可以在 /Documentation/RCU/ 目录下找到这些文件。
+
+			在RCU的实现过程中，我们主要解决以下问题：
+
+       			1、在读取过程中，另外一个线程删除了一个节点。删除线程可以把这个节点从链表中移除，但它不能直接销毁这个节点，必须等到所有的读取线程读取完成以后，才进行销毁操作。RCU中把这个过程称为宽限期（Grace period）。
+
+       			2、在读取过程中，另外一个线程插入了一个新节点，而读线程读到了这个节点，那么需要保证读到的这个节点是完整的。这里涉及到了发布-订阅机制（Publish-Subscribe Mechanism）。
+
+       			3、保证读取链表的完整性。新增或者删除一个节点，不至于导致遍历一个链表从中间断开。但是RCU并不保证一定能读到新增的节点或者不读到要被删除的节点。
 	\section{CPU}
 		\subsection{字节序}
 			CPU分为大端和小端两种。而在网络传输的过程中，大小端的不一致会带来问题。

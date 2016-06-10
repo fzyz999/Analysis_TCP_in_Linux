@@ -622,7 +622,44 @@ kmemcheck_bitfield_end(flags1);
 %----------------------------------------------------------------------------------------
 %                   Structure about Inet
 %----------------------------------------------------------------------------------------
-    \section{inet层相关数据结构}    
+    \section{inet层相关数据结构}
+		\subsection{\mintinline{C}{ip_options}}
+
+\begin{minted}[linenos]{C}
+
+
+/*
+Location:
+
+Description:
+	@faddr - Saved first hop address
+	@nexthop - Saved nexthop address in LSRR and SSRR
+	@is_strictroute - Strict source route
+	@srr_is_hit - Packet destination addr was our one
+	@is_changed - IP checksum more not valid
+	@rr_needaddr - Need to record addr of outgoing dev
+	@ts_needtime - Need to record timestamp
+	@ts_needaddr - Need to record addr of outgoing dev
+*/
+struct ip_options {
+	__be32		faddr;
+	__be32		nexthop;
+	unsigned char	optlen;
+	unsigned char	srr;
+	unsigned char	rr;
+	unsigned char	ts;
+	unsigned char	is_strictroute:1,
+			srr_is_hit:1,
+			is_changed:1,
+			rr_needaddr:1,
+			ts_needtime:1,
+			ts_needaddr:1;
+	unsigned char	router_alert;
+	unsigned char	cipso;
+	unsigned char	__pad2;
+	unsigned char	__data[0];
+};
+\end{minted}    
         \subsection{\mintinline{C}{inet_request_sock}}
 
         该结构位于\mintinline{C}{/include/net/inet_sock.h}中。
@@ -1013,11 +1050,12 @@ struct dst_entry {
 
             该结构位于\mintinline{C}{/include/net/route.h}中。
 
-            这是ipv4路由缓存相关结构体，保护了该路由缓存查找的匹配条件，即\mintinline{C}{struct flowi}类型的变量、目的ip、源ip、下一跳网关地址、路由类型等。当然了，还有最重要的，保护了一个协议无关的\mintinline{C}{dst_entry}变量，通过该union能够很好的实现\mintinline{C}{dst_entry}与rtable的转换，而\mintinline{C}{dst_entry}中又包含邻居项相关的信息，实现了路由缓存与邻居子系统的关联。
+            这是ipv4路由缓存相关结构体，保护了该路由缓存查找的匹配条件，即\mintinline{C}{struct flowi}类型的变量、目的ip、源ip、下一跳网关地址、路由类型等。当然了，还有最重要的，保护了一个协议无关的\mintinline{C}{dst_entry}变量，能够很好地实现\mintinline{C}{dst_entry}与rtable的转换，而\mintinline{C}{dst_entry}中又包含邻居项相关的信息，实现了路由缓存与邻居子系统的关联。
 
 \begin{minted}[linenos]{C}
 struct rtable {
-    struct dst_entry    dst;
+	/*存储缓存路由项中独立于协议的信息*/
+    struct dst_entry    dst;		
 
     int         rt_genid;
     unsigned int        rt_flags;
