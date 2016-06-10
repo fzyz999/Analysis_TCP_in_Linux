@@ -1050,11 +1050,12 @@ struct dst_entry {
 
             该结构位于\mintinline{C}{/include/net/route.h}中。
 
-            这是ipv4路由缓存相关结构体，保护了该路由缓存查找的匹配条件，即\mintinline{C}{struct flowi}类型的变量、目的ip、源ip、下一跳网关地址、路由类型等。当然了，还有最重要的，保护了一个协议无关的\mintinline{C}{dst_entry}变量，通过该union能够很好的实现\mintinline{C}{dst_entry}与rtable的转换，而\mintinline{C}{dst_entry}中又包含邻居项相关的信息，实现了路由缓存与邻居子系统的关联。
+            这是ipv4路由缓存相关结构体，保护了该路由缓存查找的匹配条件，即\mintinline{C}{struct flowi}类型的变量、目的ip、源ip、下一跳网关地址、路由类型等。当然了，还有最重要的，保护了一个协议无关的\mintinline{C}{dst_entry}变量，能够很好地实现\mintinline{C}{dst_entry}与rtable的转换，而\mintinline{C}{dst_entry}中又包含邻居项相关的信息，实现了路由缓存与邻居子系统的关联。
 
 \begin{minted}[linenos]{C}
 struct rtable {
-    struct dst_entry    dst;
+	/*存储缓存路由项中独立于协议的信息*/
+    struct dst_entry    dst;		
 
     int         rt_genid;
     unsigned int        rt_flags;

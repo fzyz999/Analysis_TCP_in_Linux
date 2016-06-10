@@ -69,7 +69,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 \begin{minted}[linenos]{c}
         orig_sport = inet->inet_sport;
         orig_dport = usin->sin_port;
-        fl4 = &inet->cork.fl.u.ip4;
+        fl4 = &inet->cork.fl.u.ip4;		//对应于ipv4的流
         /* 获取目标的路由缓存项，如果路由查找命中，则生成一个相应的路由缓存项，这个缓存项不但可以用于
 			当前待发送的SYN段，而且对后续的所有数据包都可以起到一个加速路由查找的作用。*/
         rt = ip_route_connect(fl4, nexthop, inet->inet_saddr,
