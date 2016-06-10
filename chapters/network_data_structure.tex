@@ -622,7 +622,44 @@ kmemcheck_bitfield_end(flags1);
 %----------------------------------------------------------------------------------------
 %                   Structure about Inet
 %----------------------------------------------------------------------------------------
-    \section{inet层相关数据结构}    
+    \section{inet层相关数据结构}
+		\subsection{\mintinline{C}{ip_options}}
+
+\begin{minted}[linenos]{C}
+
+
+/*
+Location:
+
+Description:
+	@faddr - Saved first hop address
+	@nexthop - Saved nexthop address in LSRR and SSRR
+	@is_strictroute - Strict source route
+	@srr_is_hit - Packet destination addr was our one
+	@is_changed - IP checksum more not valid
+	@rr_needaddr - Need to record addr of outgoing dev
+	@ts_needtime - Need to record timestamp
+	@ts_needaddr - Need to record addr of outgoing dev
+*/
+struct ip_options {
+	__be32		faddr;
+	__be32		nexthop;
+	unsigned char	optlen;
+	unsigned char	srr;
+	unsigned char	rr;
+	unsigned char	ts;
+	unsigned char	is_strictroute:1,
+			srr_is_hit:1,
+			is_changed:1,
+			rr_needaddr:1,
+			ts_needtime:1,
+			ts_needaddr:1;
+	unsigned char	router_alert;
+	unsigned char	cipso;
+	unsigned char	__pad2;
+	unsigned char	__data[0];
+};
+\end{minted}    
         \subsection{\mintinline{C}{inet_request_sock}}
 
         该结构位于\mintinline{C}{/include/net/inet_sock.h}中。

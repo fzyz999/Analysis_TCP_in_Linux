@@ -56,7 +56,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
         nexthop = daddr = usin->sin_addr.s_addr;
         inet_opt = rcu_dereference_protected(inet->inet_opt,
                                              sock_owned_by_user(sk));
-        /* 如果选择源地址路由，则将下一跳地址设置为IP选项中的faddr */
+        /* 如果选择源地址路由，则将下一跳地址设置为IP选项中的faddr-first hop address*/
         if (inet_opt && inet_opt->opt.srr) {
                 if (!daddr)
                         return -EINVAL;
