@@ -99,16 +99,23 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
                 inet->inet_saddr = fl4->saddr;
         sk_rcv_saddr_set(sk, inet->inet_saddr);
 
-        /* 如果该传输控制块的时间戳已被使用过，则重置各状态 */
+        /* 如果该传输控制块的时间戳已被使用过，则重置各状态 
+			rx_opt:  tcp_options_received
+		*/
         if (tp->rx_opt.ts_recent_stamp && inet->inet_daddr != daddr) {
                 /* Reset inherited state */
-                tp->rx_opt.ts_recent       = 0;
+				/*下一个待发送的TCP段中的时间戳回显值*/
+                tp->rx_opt.ts_recent       = 0;		
+				/*从接收到的段中取出时间戳*/
                 tp->rx_opt.ts_recent_stamp = 0;
+				/*What does it means repair*/		
                 if (likely(!tp->repair))
                         tp->write_seq      = 0;
         }
 
-        /* 在启用了tw_recycle的情况下，重设时间戳 */
+        /* 	在启用了tw_recycle:time wait recycle的情况下，重设时间戳 
+			它用来快速回收TIME_WAIT连接.
+		*/
         if (tcp_death_row.sysctl_tw_recycle &&
             !tp->rx_opt.ts_recent_stamp && fl4->daddr == daddr)
                 tcp_fetch_timewait_stamp(sk, &rt->dst);
@@ -149,14 +156,18 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
         sk->sk_gso_type = SKB_GSO_TCPV4;
         sk_setup_caps(sk, &rt->dst);
 
-        /* 如果没有设置序号，则计算初始序号 */
+        /* 	如果没有设置序号，则计算初始序号 
+			序号与双方的地址与端口号有关系
+		*/
         if (!tp->write_seq && likely(!tp->repair))
                 tp->write_seq = secure_tcp_sequence_number(inet->inet_saddr,
                                                            inet->inet_daddr,
                                                            inet->inet_sport,
                                                            usin->sin_port);
                                                            
-        /* 计算IP首部的id域的值 */
+        /* 	计算IP首部的id域的值 
+			全局变量jiffies用来记录自系统启动以来产生的节拍的总数		
+		*/
         inet->inet_id = tp->write_seq ^ jiffies;
 
         /* 调用tcp_connect构造并发送SYN包*/
