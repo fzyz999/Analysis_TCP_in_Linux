@@ -180,3 +180,352 @@ void tcp_unregister_congestion_control(struct tcp_congestion_ops *ca)
 \end{minted}
 
 \subsection{CUBIC拥塞控制算法}
+Cubic算法是Linux中默认的拥塞控制算法。
+
+\subsubsection{模块定义}
+在Linux中，拥塞控制算法是作为模块单独实现的。Cubic也不例外。首先，定义了模块的基本信息
+\begin{minted}[linenos]{c}
+module_init(cubictcp_register);
+module_exit(cubictcp_unregister);
+
+MODULE_AUTHOR("Sangtae Ha, Stephen Hemminger");
+MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("CUBIC TCP");
+MODULE_VERSION("2.3");
+\end{minted}
+这部分定义包括了模块作者、所使用的许可证、版本等等。其中，最重要的是定义了模块的初始化函数，
+和模块被卸载时所要调用的函数。初始化函数如下：
+\begin{minted}[linenos]{c}
+static int __init cubictcp_register(void)
+{       
+        BUILD_BUG_ON(sizeof(struct bictcp) > ICSK_CA_PRIV_SIZE);
+        
+        /* 预先计算缩放因子（此时假定SRTT为100ms） */
+        
+        beta_scale = 8*(BICTCP_BETA_SCALE+beta) / 3
+                / (BICTCP_BETA_SCALE - beta);
+        
+        cube_rtt_scale = (bic_scale * 10);      /* 1024*c/rtt */
+        
+        /* 计算公式 (wmax-cwnd) = c/rtt * K^3 中的K
+         * 可得 K = cubic_root( (wmax-cwnd)*rtt/c )
+         * 注意，这里 K 的单位是 bictcp_HZ=2^10， 而不是 HZ
+         */
+        
+        /* 1/c * 2^2*bictcp_HZ * srtt */
+        cube_factor = 1ull << (10+3*BICTCP_HZ); /* 2^40 */
+        
+        /* divide by bic_scale and by constant Srtt (100ms) */
+        do_div(cube_factor, bic_scale * 10);
+        
+        return tcp_register_congestion_control(&cubictcp);
+}
+\end{minted}
+在初始化时，根据预先设定好的参数，按照Cubic算法的公式计算好\mintinline{c}{cube_factor}。
+之后，调用\mintinline{c}{tcp_register_congestion_control}函数注册Cubic算法。
+Cubic算法所实现的操作如下：
+\begin{minted}[linenos]{c}
+static struct tcp_congestion_ops cubictcp __read_mostly = {
+        .init           = bictcp_init,
+        .ssthresh       = bictcp_recalc_ssthresh,
+        .cong_avoid     = bictcp_cong_avoid,
+        .set_state      = bictcp_state,
+        .undo_cwnd      = bictcp_undo_cwnd,
+        .cwnd_event     = bictcp_cwnd_event,
+        .pkts_acked     = bictcp_acked,
+        .owner          = THIS_MODULE,
+        .name           = "cubic",
+};
+\end{minted}
+根据这里定义好的操作，我们就可以去理解对应的实现。在模块被卸载时，
+将调用\mintinline{c}{cubictcp_unregister}函数。该函数只有一个职责——将Cubic算法
+从拥塞控制引擎中注销掉。
+\begin{minted}[linenos]{c}
+static void __exit cubictcp_unregister(void)
+{
+        tcp_unregister_congestion_control(&cubictcp);
+}
+\end{minted}
+
+\subsubsection{基本参数及初始化}
+CUBIC的所需的基本参数定义如下：
+\begin{minted}[linenos]{c}
+/* BIC TCP Parameters */
+struct bictcp {
+        u32     cnt;            /* 每次cwnd增长1/cnt的比例 */
+        u32     last_max_cwnd;  /* snd_cwnd之前的最大值 */
+        u32     loss_cwnd;      /* 最近一次发生丢失的时候的拥塞窗口 */
+        u32     last_cwnd;      /* 最近的snd_cwnd */
+        u32     last_time;      /* 更新last_cwnd的时间 */
+        u32     bic_origin_point;/* bic函数的初始点 */
+        u32     bic_K;          /* 从当前一轮开始到初始点的时间 */
+        u32     delay_min;      /* 最小延迟 (msec << 3) */
+        u32     epoch_start;    /* 一轮的开始 */
+        u32     ack_cnt;        /* ack 的数量 */
+        u32     tcp_cwnd;       /* estimated tcp cwnd */
+        u16     unused;
+        u8      sample_cnt;     /* 用于决定curr_rtt的样本数 */
+        u8      found;          /* 是否找到了退出点? */
+        u32     round_start;    /* beginning of each round */
+        u32     end_seq;        /* end_seq of the round */
+        u32     last_ack;       /* last time when the ACK spacing is close */
+        u32     curr_rtt;       /* the minimum rtt of current round */
+};
+\end{minted}
+
+初始化时，首先重置了CUBIC所需的参数，之后，将\mintinline{c}{loss_cwnd}设置为0。
+因为此时尚未发送任何丢失，所以初始化为0。最后根据是否启用hystart机制来决定是否进行相应的
+初始化。最后，如果设置了\mintinline{c}{initial_ssthresh}，那么就用该值作为初始的
+\mintinline{c}{snd_ssthresh}。
+\begin{minted}[linenos]{c}
+static void bictcp_init(struct sock *sk)
+{
+        struct bictcp *ca = inet_csk_ca(sk);
+
+        bictcp_reset(ca);
+        ca->loss_cwnd = 0;
+
+        if (hystart)
+                bictcp_hystart_reset(sk);
+
+        if (!hystart && initial_ssthresh)
+                tcp_sk(sk)->snd_ssthresh = initial_ssthresh;
+}
+\end{minted}
+其中，\mintinline{c}{bictcp_reset}函数将必要的参数都初始化为0了。
+\begin{minted}[linenos]{c}
+static inline void bictcp_reset(struct bictcp *ca)
+{
+        ca->cnt = 0;
+        ca->last_max_cwnd = 0;
+        ca->last_cwnd = 0;
+        ca->last_time = 0;
+        ca->bic_origin_point = 0;
+        ca->bic_K = 0;
+        ca->delay_min = 0;
+        ca->epoch_start = 0;
+        ca->ack_cnt = 0;
+        ca->tcp_cwnd = 0;
+        ca->found = 0;
+}
+\end{minted}
+
+\subsubsection{ssthresh的计算}
+门限值的计算过程在\mintinline{c}{bictcp_recalc_ssthresh}函数中实现。
+\begin{minted}[linenos]{c}
+static u32 bictcp_recalc_ssthresh(struct sock *sk)
+{
+        const struct tcp_sock *tp = tcp_sk(sk);
+        struct bictcp *ca = inet_csk_ca(sk);
+
+        ca->epoch_start = 0;    /* end of epoch */
+
+        /* Wmax and fast convergence */
+        if (tp->snd_cwnd < ca->last_max_cwnd && fast_convergence)
+                ca->last_max_cwnd = (tp->snd_cwnd * (BICTCP_BETA_SCALE + beta))
+                        / (2 * BICTCP_BETA_SCALE);
+        else
+                ca->last_max_cwnd = tp->snd_cwnd;
+
+        ca->loss_cwnd = tp->snd_cwnd;
+
+        return max((tp->snd_cwnd * beta) / BICTCP_BETA_SCALE, 2U);
+}
+\end{minted}
+这里涉及到了Fast Convergence机制。该机制的存在是为了加快CUBIC算法的收敛速度。
+在网络中，一个新的流的加入，会使得旧的流让出一定的带宽，以便给新的流让出一定的增长空间。
+为了增加旧的流释放的带宽量，CUBIC的作者引入了Fast Convergence机制。每次发生丢包后，
+会对比此次丢包时拥塞窗口的大小和之前的拥塞窗口大小。如果小于了之前拥塞窗口的最大值，
+那么就说明可能是有新的流加入了。此时，就多留出一些带宽给新的流使用，以使得网络尽快
+收敛到稳定状态。
+
+\subsubsection{慢启动和拥塞避免}
+处于拥塞避免状态时，计算拥塞窗口的函数为\mintinline{c}{bictcp_cong_avoid}。
+\begin{minted}[linenos]{c}
+static void bictcp_cong_avoid(struct sock *sk, u32 ack, u32 acked)
+{       
+        struct tcp_sock *tp = tcp_sk(sk);
+        struct bictcp *ca = inet_csk_ca(sk);
+        
+        if (!tcp_is_cwnd_limited(sk))
+                return;
+        
+        /* 当tp->snd_cwnd < tp->snd_ssthresh时，
+         * 让拥塞窗口大小正好等于ssthresh的大小。并据此计算acked的大小。
+         */
+        if (tcp_in_slow_start(tp)) {
+                if (hystart && after(ack, ca->end_seq))
+                        bictcp_hystart_reset(sk);
+                acked = tcp_slow_start(tp, acked);
+                if (!acked)
+                        return;
+        }
+        bictcp_update(ca, tp->snd_cwnd, acked);
+        tcp_cong_avoid_ai(tp, ca->cnt, acked);
+}
+\end{minted}
+这里不妨举个例子。如果ssthresh的值为6，初始cwnd为1。那么按照TCP的标准，拥塞窗口
+大小的变化应当为1,2,4,6而不是1,2,4,8。当处于慢启动的状态时，acked的数目完全由慢启动决定。
+慢启动部分的代码如下：
+\begin{minted}[linenos]{c}
+u32 tcp_slow_start(struct tcp_sock *tp, u32 acked)
+{
+        /* 新的拥塞窗口的大小等于ssthresh和cwnd中较小的那一个 */
+        u32 cwnd = min(tp->snd_cwnd + acked, tp->snd_ssthresh);
+
+        /* 如果新的拥塞窗口小于ssthresh，则acked=0。
+         * 否则acked为超过ssthresh部分的数目。 
+         */
+        acked -= cwnd - tp->snd_cwnd;
+        tp->snd_cwnd = min(cwnd, tp->snd_cwnd_clamp);
+
+        return acked;
+}
+\end{minted}
+也就是说，如果满足$cwnd<ssthresh$，那么，\mintinline{c}{bictcp_cong_avoid}就表现为
+慢启动。否则，就表现为拥塞避免。拥塞避免状态下，调用\mintinline{c}{bictcp_update}来
+更新拥塞窗口的值。
+\begin{minted}[linenos]{c}
+static inline void bictcp_update(struct bictcp *ca, u32 cwnd, u32 acked)
+{
+        u32 delta, bic_target, max_cnt;
+        u64 offs, t;
+
+        ca->ack_cnt += acked;   /* 统计ACKed packets的数目 */
+
+        if (ca->last_cwnd == cwnd &&
+            (s32)(tcp_time_stamp - ca->last_time) <= HZ / 32)
+                return;
+
+        /* CUBIC函数每个时间单位内最多更新一次ca->cnt的值。
+         * 每一次发生cwnd减小事件，ca->epoch_start会被设置为0.
+         * 这会强制重新计算ca->cnt。
+         */
+        if (ca->epoch_start && tcp_time_stamp == ca->last_time)
+                goto tcp_friendliness;
+
+        ca->last_cwnd = cwnd;
+        ca->last_time = tcp_time_stamp;
+
+        if (ca->epoch_start == 0) {
+                ca->epoch_start = tcp_time_stamp;       /* 记录起始时间 */
+                ca->ack_cnt = acked;                    /* 开始计数 */
+                ca->tcp_cwnd = cwnd;                    /* 同步cubic的cwnd值 */
+
+                if (ca->last_max_cwnd <= cwnd) {
+                        ca->bic_K = 0;
+                        ca->bic_origin_point = cwnd;
+                } else {
+                        /* 根据公式计算新的K值
+                         * (wmax-cwnd) * (srtt>>3 / HZ) / c * 2^(3*bictcp_HZ)
+                         */
+                        ca->bic_K = cubic_root(cube_factor
+                                               * (ca->last_max_cwnd - cwnd));
+                        ca->bic_origin_point = ca->last_max_cwnd;
+                }
+        }
+
+        /* cubic function - calc*/
+        /* calculate c * time^3 / rtt,
+         *  while considering overflow in calculation of time^3
+         * (so time^3 is done by using 64 bit)
+         * and without the support of division of 64bit numbers
+         * (so all divisions are done by using 32 bit)
+         *  also NOTE the unit of those veriables
+         *        time  = (t - K) / 2^bictcp_HZ
+         *        c = bic_scale >> 10
+         * rtt  = (srtt >> 3) / HZ
+         * !!! The following code does not have overflow problems,
+         * if the cwnd < 1 million packets !!!
+         */
+
+        t = (s32)(tcp_time_stamp - ca->epoch_start);
+        t += msecs_to_jiffies(ca->delay_min >> 3);
+        /* change the unit from HZ to bictcp_HZ */
+        t <<= BICTCP_HZ;
+        do_div(t, HZ);
+
+        if (t < ca->bic_K)              /* t - K */
+                offs = ca->bic_K - t;
+        else
+                offs = t - ca->bic_K;
+
+        /* c/rtt * (t-K)^3 */
+        delta = (cube_rtt_scale * offs * offs * offs) >> (10+3*BICTCP_HZ);
+        if (t < ca->bic_K)                            /* below origin*/
+                bic_target = ca->bic_origin_point - delta;
+        else                                          /* above origin*/
+                bic_target = ca->bic_origin_point + delta;
+
+        /* 根据cubic函数计算出来的目标拥塞窗口值和当前拥塞窗口值，计算cnt的大小。*/
+        if (bic_target > cwnd) {
+                ca->cnt = cwnd / (bic_target - cwnd);
+        } else {
+                ca->cnt = 100 * cwnd;              /* 只增长一小点 */
+        }
+
+        /*
+         * The initial growth of cubic function may be too conservative
+         * when the available bandwidth is still unknown.
+         */
+        if (ca->last_max_cwnd == 0 && ca->cnt > 20)
+                ca->cnt = 20;   /* increase cwnd 5% per RTT */
+
+tcp_friendliness:
+        /* TCP 友好性 */
+        if (tcp_friendliness) {
+        u32 scale = beta_scale;
+
+                /* 推算在传统的AIMD算法下，TCP拥塞窗口的大小 */
+                delta = (cwnd * scale) >> 3;
+                while (ca->ack_cnt > delta) {           /* update tcp cwnd */
+                        ca->ack_cnt -= delta;
+                        ca->tcp_cwnd++;
+                }
+                
+                /* 如果TCP的算法快于CUBIC，那么就增长到TCP算法的水平 */
+                if (ca->tcp_cwnd > cwnd) {
+                        delta = ca->tcp_cwnd - cwnd;
+                        max_cnt = cwnd / delta;
+                        if (ca->cnt > max_cnt)
+                                ca->cnt = max_cnt;
+                }
+        }
+
+        /* 控制增长速率不高于每个rtt增长为原来的1.5倍 */
+        ca->cnt = max(ca->cnt, 2U);
+}
+\end{minted}
+在更新完窗口大小以后，CUBIC模块没有直接改变窗口值，而是通过调用
+\mintinline{c}{tcp_cong_avoid_ai}来改变窗口大小的。这个函数原本只是单纯地每次将
+窗口大小增加一定的值。但是在经历了一系列的修正后，变得较为难懂了。
+\begin{minted}[linenos]{c}
+void tcp_cong_avoid_ai(struct tcp_sock *tp, u32 w, u32 acked)
+{
+        /* 这里做了一个奇怪的小补丁，用于解决这样一种情况：
+         * 如果w很大，那么，snd_cwnd_cnt可能会积累为一个很大的值。
+         * 此后，w由于种种原因突然被缩小了很多。那么下面计算处理的delta就会很大。
+         * 这可能导致流量的爆发。为了避免这种情况，这里提前增加了一个特判。
+         */
+        if (tp->snd_cwnd_cnt >= w) {
+                tp->snd_cwnd_cnt = 0;
+                tp->snd_cwnd++;
+        }
+
+        /* 累计被确认的包的数目 */
+        tp->snd_cwnd_cnt += acked;
+        if (tp->snd_cwnd_cnt >= w) {
+                /* 窗口增大的大小应当为被确认的包的数目除以当前窗口大小。
+                 * 以往都是直接加一，但直接加一并不是正确的加法增加(AI)的实现。
+                 * 例如，w为10，acked为20时，应当增加20/10=2，而不是1。
+                 */
+                u32 delta = tp->snd_cwnd_cnt / w;
+
+                tp->snd_cwnd_cnt -= delta * w;
+                tp->snd_cwnd += delta;
+        }
+        tp->snd_cwnd = min(tp->snd_cwnd, tp->snd_cwnd_clamp);
+}
+\end{minted}
+
+\subsubsection{hystart}

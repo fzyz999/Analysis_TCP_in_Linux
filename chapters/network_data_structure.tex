@@ -716,7 +716,7 @@ struct inet_connection_sock_af_ops {
  * @icsk_pmtu_cookie       Last pmtu seen by socket
  * @icsk_ca_ops        Pluggable congestion control hook
  * @icsk_af_ops        Operations which are AF_INET{4,6} specific
- * @icsk_ca_state:     Congestion control state
+ * @icsk_ca_state:     拥塞控制状态
  * @icsk_retransmits:      Number of unrecovered [RTO] timeouts
  * @icsk_pending:      Scheduled timer event
  * @icsk_backoff:      Backoff
@@ -773,7 +773,7 @@ struct inet_connection_sock {
     } icsk_mtup;
     u32           icsk_user_timeout;
 
-    u64           icsk_ca_priv[64 / sizeof(u64)];
+    u64           icsk_ca_priv[64 / sizeof(u64)]; /* 拥塞控制算法私有空间 */
 #define ICSK_CA_PRIV_SIZE      (8 * sizeof(u64))
 };
 \end{minted}
@@ -1113,31 +1113,31 @@ struct flowi {
 struct tcp_options_received {
 /*  PAWS/RTTM data  */
     long    ts_recent_stamp;  /* Time we stored ts_recent (for aging)        
-								记录从接收到的段中取出时间戳设置到ts_recent的时间
-								用于检测ts_recent的有效性：如果自从该事件之后已经
-								经过了超过24天的时间，则认为ts_recent已无效。
-							  */
+                                记录从接收到的段中取出时间戳设置到ts_recent的时间
+                                用于检测ts_recent的有效性：如果自从该事件之后已经
+                                经过了超过24天的时间，则认为ts_recent已无效。
+                              */
     u32 ts_recent;            /* Time stamp to echo next                     
-								下一个待发送的TCP段中的时间戳回显值。当一个含有最后
-								发送ACK中确认序号的段到达时，该段中的时间戳被保存在
-								ts_recent中。而当下一个待发送的TCP段的时间戳值是由
-								SKB中TCP控制块的成员when填入的，when字段值是由协议
-								栈取系统时间变量jiffies的低32位。
-					          */
+                                下一个待发送的TCP段中的时间戳回显值。当一个含有最后
+                                发送ACK中确认序号的段到达时，该段中的时间戳被保存在
+                                ts_recent中。而当下一个待发送的TCP段的时间戳值是由
+                                SKB中TCP控制块的成员when填入的，when字段值是由协议
+                                栈取系统时间变量jiffies的低32位。
+                              */
     u32 rcv_tsval;            /* Time stamp value                            
-								保存最近一次接收到对段的TCP段的时间戳选项中的时间戳值。
-							  */
+                                保存最近一次接收到对段的TCP段的时间戳选项中的时间戳值。
+                              */
     u32 rcv_tsecr;            /* Time stamp echo reply                       
-								保存最近一次接收到对段的TCP段的时间戳选项中的时间戳
-								回显应答。
-							  */
+                                保存最近一次接收到对段的TCP段的时间戳选项中的时间戳
+                                回显应答。
+                              */
     u16     saw_tstamp : 1,   /* Saw TIMESTAMP on last packet                
-								标识最近一次接收到的TCP段是否存在TCP时间戳选项，1为有，
-								0为无。
-							  */
+                                标识最近一次接收到的TCP段是否存在TCP时间戳选项，1为有，
+                                0为无。
+                              */
         tstamp_ok : 1,        /* TIMESTAMP seen on SYN packet                
-								标识TCP连接是否启动时间戳选项。
-							  */
+                                标识TCP连接是否启动时间戳选项。
+                              */
         dsack : 1,            /* D-SACK is scheduled                         */
         wscale_ok : 1,        /* Wscale seen on SYN packet                   */
         sack_ok : 4,          /* SACK seen on SYN packet                     */
