@@ -8,6 +8,12 @@
 	\subsection{第一次握手：构造并发送SYN包}
 	\label{subsec:tcp_connect_syn}
 
+		\subsubsection{基本调用关系}
+
+                \begin{figure}[htb]        
+                    \centering
+                    \includegraphics[width=\textwidth]  {images/Client:Send SYN.png}
+                \end{figure}       		
 		\subsubsection{\mintinline{C}{tcp_v4_connect}}
 		\label{subsubsec:tcp_v4_connect}
 
@@ -231,7 +237,7 @@ int tcp_connect(struct sock *sk)
         /* 分配一个sk_buff */
         buff = sk_stream_alloc_skb(sk, 0, sk->sk_allocation, true);
         if (unlikely(!buff))
-                return -ENOBUFS;
+                return -ENOBUFS;				//No buffer space available
 
         /* 初始化skb，并自增write_seq的值 */
         tcp_init_nondata_skb(buff, tp->write_seq++, TCPHDR_SYN);
@@ -239,20 +245,23 @@ int tcp_connect(struct sock *sk)
         tp->retrans_stamp = tcp_time_stamp;
         /* 将当前的sk_buff添加到发送队列中 */
         tcp_connect_queue_skb(sk, buff);
-        /* ECN支持 */
-        tcp_ecn_send_syn(sk, buff);
+        /* ECN (Explicit Congestion Notification,)支持 
+			       显示拥塞控制
+		*/
+        tcp_ecn_send_syn(sk, buff);			//what does this function do?
 
         /* 发送SYN包，这里同时还考虑了Fast Open的情况 */
         err = tp->fastopen_req ? tcp_send_syn_data(sk, buff) :
               tcp_transmit_skb(sk, buff, 1, sk->sk_allocation);
-        if (err == -ECONNREFUSED)
+        if (err == -ECONNREFUSED)			/*Connection refused*/
                 return err;
 
         /* We change tp->snd_nxt after the tcp_transmit_skb() call
          * in order to make this packet get counted in tcpOutSegs.
          */
-        tp->snd_nxt = tp->write_seq;
-        tp->pushed_seq = tp->write_seq;
+        tp->snd_nxt = tp->write_seq;		//send next 下一个待发送的序列
+		/*pushed_seq means Last pushed seq, required to talk to windows???*/        
+		tp->pushed_seq = tp->write_seq;
         TCP_INC_STATS(sock_net(sk), TCP_MIB_ACTIVEOPENS);
 
         /* 设定超时重传定时器 */
@@ -265,11 +274,13 @@ int tcp_connect(struct sock *sk)
 \subsection{第二次握手：接收SYN+ACK包}
 \label{subsec:recv_synack}
 
-\mintinline{c}{tcp_rcv_state_process}实现了TCP状态机相对较为核心的一个部分。
-该函数可以处理除ESTABLISHED和TIME\_WAIT状态以外的情况下的接收过程。
-这里，我们仅关心主动连接情况下的处理。在\ref{subsubsec:tcp_v4_connect}中，我们
-分析源码时得出，客户端发送SYN包后，会将状态机设置为\mintinline{c}{TCP_SYN_SENT}状态。
-因此，我们仅在这里分析该状态下的代码。
+	\subsubsection{基本调用关系}
+	\subsubsection{\mintinline{c}{tcp_rcv_state_process}}
+		\mintinline{c}{tcp_rcv_state_process}实现了TCP状态机相对较为核心的一个部分。
+		该函数可以处理除ESTABLISHED和TIME\_WAIT状态以外的情况下的接收过程。
+		这里，我们仅关心主动连接情况下的处理。在\ref{subsubsec:tcp_v4_connect}中，我们
+		分析源码时得出，客户端发送SYN包后，会将状态机设置为\mintinline{c}{TCP_SYN_SENT}状态。
+		因此，我们仅在这里分析该状态下的代码。
 
 \begin{minted}[linenos]{c}
 /*

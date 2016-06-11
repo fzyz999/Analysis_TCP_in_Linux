@@ -12,7 +12,7 @@
             \subsubsection{第一次握手函数调用关系}
                 \begin{figure}[htb]        
                     \centering
-                    \includegraphics[width=\textwidth]  {images/The First Shake Hand of Server.png}
+                    \includegraphics[width=\textwidth]  {images/Server:Receive SYN.png}
                 \end{figure}       
             \subsubsection{\mintinline{C}{tcp_v4_do_rcv}}
                 在进行第一次握手的时候，TCP必然处于LISTEN状态。传输控制块接收处理的段都由\mintinline{C}{tcp_v4_do_rcv}来处理。该函数位于/net/ipv4/tcp\_ipv4.c中。该函数会根据不同的TCP状态进行不同的处理，这里我们只是讨论服务器第一次握手的函数处理过程。
@@ -437,7 +437,7 @@ void inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
             \subsubsection{第二次函数调用关系}            
                 第二次握手的调用函数关系图如下：
                 \begin{figure}[htb]        
-                   \center{\includegraphics[width=\textwidth]  {images/The Second Shake Hand of Server.png}}
+                   \center{\includegraphics[width=\textwidth]  {images/Server:Send SYN+ACK.png}}
                 \end{figure}   
             \subsubsection{tcp\_v4\_send\_synack}
 \begin{minted}[linenos]{C}

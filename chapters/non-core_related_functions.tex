@@ -215,18 +215,23 @@ void tcp_done(struct sock *sk)
 \end{minted}
 
 \subsection{tcp\_init\_nondata\_skb}
-该函数提供了初始化不含数据的skb的功能。函数原型如下：
-\begin{minted}[linenos]{c}
-tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags);
-\end{minted}
+该函数提供了的功能。函数如下：
 
-\begin{description}
-  \item[skb] 待初始化的\mintinline{c}{sk_buff}。
-  \item[seq] 序号
-  \item[flags] 标志位
-\end{description}
 
 \begin{minted}[linenos]{c}
+Location:
+
+	net/ipv4/tcp_output.c
+	
+Function:
+
+	初始化不含数据的skb.
+
+Parameter:
+
+	skb:待初始化的sk_buff。
+  	seq:序号
+	flags:标志位
 static void tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags)
 {
         /* 设置校验码 */
