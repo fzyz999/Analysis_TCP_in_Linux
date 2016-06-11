@@ -1166,7 +1166,7 @@ struct tcp_options_received {
                                 保存最近一次接收到对段的TCP段的时间戳选项中的时间戳值。
                               */
     u32 rcv_tsecr;            /* Time stamp echo reply                       
-                                保存最近一次接收到对段的TCP段的时间戳选项中的时间戳
+                                保存最近一次接收到对端的TCP段的时间戳选项中的时间戳
                                 回显应答。
                               */
     u16     saw_tstamp : 1,   /* Saw TIMESTAMP on last packet                
@@ -1177,7 +1177,9 @@ struct tcp_options_received {
                                 标识TCP连接是否启动时间戳选项。
                               */
         dsack : 1,            /* D-SACK is scheduled                         */
-        wscale_ok : 1,        /* Wscale seen on SYN packet                   */
+        wscale_ok : 1,       /* Wscale seen on SYN packet                   
+								标志接收方是否支持窗口扩大因子，只出现在SYN段中。	
+							 */
         sack_ok : 4,          /* SACK seen on SYN packet                     */
         snd_wscale : 4,       /* Window scaling received from sender         */
         rcv_wscale : 4;       /* Window scaling to send to receiver          */
@@ -1255,7 +1257,9 @@ struct tcp_sock {
     u32 max_window; /* Maximal window ever seen from peer   */
     u32 mss_cache;  /* Cached effective mss, not including SACKS */
 
-    u32 window_clamp;   /* Maximal window to advertise      */
+    u32 window_clamp;   /* Maximal window to advertise     
+							滑动窗口最大值					   
+						 */
     u32 rcv_ssthresh;   /* Current window clamp         */
 
     /* Information of the most recently (s)acked skb */
@@ -1264,7 +1268,9 @@ struct tcp_sock {
         u8 advanced; /* mstamp advanced since last lost marking */
         u8 reord;    /* reordering detected */
     } rack;
-    u16 advmss;     /* Advertised MSS           */
+    u16 advmss;     /* Advertised MSS           
+						本端能接收的MSS上限，在建立时用来通告对方。					
+					*/
     u8  unused;
     u8  nonagle     : 4,/* Disable Nagle algorithm?             */
         thin_lto    : 1,/* Use linear timeouts for thin streams */

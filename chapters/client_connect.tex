@@ -275,6 +275,12 @@ int tcp_connect(struct sock *sk)
 \label{subsec:recv_synack}
 
 	\subsubsection{基本调用关系}
+
+                \begin{figure}[htb]        
+                    \centering
+                    \includegraphics[width=\textwidth]  {images/Client:Receive SYN +ACK.png}
+                \end{figure} 
+
 	\subsubsection{\mintinline{c}{tcp_rcv_state_process}}
 		\mintinline{c}{tcp_rcv_state_process}实现了TCP状态机相对较为核心的一个部分。
 		该函数可以处理除ESTABLISHED和TIME\_WAIT状态以外的情况下的接收过程。
@@ -309,34 +315,36 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
         int queued = 0;
         bool acceptable;
 
+		/*标识接收到的TCP段不存在TCP时间戳选项*/
         tp->rx_opt.saw_tstamp = 0;
 
         switch (sk->sk_state) {
-        case TCP_CLOSE:
-                /* CLOSE状态的处理代码 */
+		    case TCP_CLOSE:
+		            /* CLOSE状态的处理代码 */
 
-        case TCP_LISTEN:
-                /* LISTEN状态的处理代码 */
+		    case TCP_LISTEN:
+		            /* LISTEN状态的处理代码 */
 
-        case TCP_SYN_SENT:
-                /* 处理接收到的数据段 */
-                queued = tcp_rcv_synsent_state_process(sk, skb, th);
-                if (queued >= 0)
-                        return queued;
+		    case TCP_SYN_SENT:
+		            /* 处理接收到的数据段 */
+		            queued = tcp_rcv_synsent_state_process(sk, skb, th);
+		            if (queued >= 0)
+		                    return queued;
 
-                /* 处理紧急数据并检测是否有数据需要发送 */
-                tcp_urg(sk, skb, th);
-                __kfree_skb(skb);
-                tcp_data_snd_check(sk);
-                return 0;
-        }
+		            /* 处理紧急数据并检测是否有数据需要发送 */
+		            tcp_urg(sk, skb, th);
+		            __kfree_skb(skb);
+		            tcp_data_snd_check(sk);
+		            return 0;
+		    }
 
         /* 处理其他情况的代码 */
 }
 \end{minted}
 
-具体的处理代码被放在了\mintinline{c}{tcp_rcv_synsent_state_process}中，通过
-命名就可以看出，该函数是专门用于处理SYN\_SENT状态下收到的数据的。
+	\subsubsection{\mintinline{c}{tcp_rcv_synsent_state_process}}
+		具体的处理代码被放在了\mintinline{c}{tcp_rcv_synsent_state_process}中，通过
+		命名就可以看出，该函数是专门用于处理SYN\_SENT状态下收到的数据的。
 
 \begin{minted}[linenos]{c}
 /*
@@ -365,6 +373,12 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 
         /* 解析TCP选项，并保存在传输控制块中 */
         tcp_parse_options(skb, &tp->rx_opt, 0, &foc);
+		/*
+			rcv_tsecr 保存最近一次接收到对端的TCP段的时间
+			戳选项中的时间戳回显应答。???
+
+			tsoffset means timestamp offset
+		*/
         if (tp->rx_opt.saw_tstamp && tp->rx_opt.rcv_tsecr)
                 tp->rx_opt.rcv_tsecr -= tp->tsoffset;
 \end{minted}
@@ -381,6 +395,7 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
                  *        a reset (unless the RST bit is set, if so drop
                  *        the segment and return)"
                  * ISS代表初始发送序号(Initial Send Sequence number)
+					snd_una 在输出的段中，最早一个未被确认段的序号
                  */
                 if (!after(TCP_SKB_CB(skb)->ack_seq, tp->snd_una) ||
                     after(TCP_SKB_CB(skb)->ack_seq, tp->snd_nxt))
@@ -444,16 +459,19 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
                 tp->rcv_nxt = TCP_SKB_CB(skb)->seq + 1;
                 tp->rcv_wup = TCP_SKB_CB(skb)->seq + 1;
 \end{minted}
-对于SYN和SYN/ACK段是不进行窗口放大的。关于RFC1323窗口放大相关的内容，我们会在
-\ref{subsec:rfc1323}中详细讨论。接下来手动设定了窗口缩放相关的参数，
+对于SYN和SYN/ACK段是不进行窗口放大的。关于RFC1323窗口放大相关的内容，我们在
+\ref{subsec:rfc1323}中进行了详细讨论。接下来手动设定了窗口缩放相关的参数，
 使得缩放不生效。
 \begin{minted}[linenos]{c}
                 /* RFC1323: The window in SYN & SYN/ACK segments is
                  * never scaled.
                  */
-                tp->snd_wnd = ntohs(th->window);
+                tp->snd_wnd = ntohs(th->window);	//network to host short int
 
-                if (!tp->rx_opt.wscale_ok) {
+				/* wscale_ok 标志接收方是否支持窗口扩大因子
+				   window_clamp 滑动窗口最大值
+				*/                
+				if (!tp->rx_opt.wscale_ok) {
                         tp->rx_opt.snd_wscale = tp->rx_opt.rcv_wscale = 0;
                         tp->window_clamp = min(tp->window_clamp, 65535U);
                 }
@@ -461,10 +479,10 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 根据时间戳选项，设定相关字段及TCP头部长度。
 \begin{minted}[linenos]{c}
                 if (tp->rx_opt.saw_tstamp) {
-                        tp->rx_opt.tstamp_ok       = 1;
+                        tp->rx_opt.tstamp_ok= 1;
                         tp->tcp_header_len =
                                 sizeof(struct tcphdr) + TCPOLEN_TSTAMP_ALIGNED;
-                        tp->advmss          -= TCPOLEN_TSTAMP_ALIGNED;
+                        tp->advmss -= TCPOLEN_TSTAMP_ALIGNED;
                         tcp_store_ts_recent(tp);
                 } else {
                         tp->tcp_header_len = sizeof(struct tcphdr);
@@ -474,7 +492,7 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 需要重传。开启SACK后，可以让发送端只重传丢失的包。而当重传的包比较多时，会进一步导致网络
 繁忙，FASK用来做重传过程中的拥塞控制。
 \begin{minted}[linenos]{c}
-                if (tcp_is_sack(tp) && sysctl_tcp_fack)
+                if (tcp_is_sack(tp) && sysctl_tcp_fack)	//sysctl: system control
                         tcp_enable_fack(tp);
 \end{minted}
 最后初始化MTU、MSS等参数并完成TCP连接过程。
@@ -498,7 +516,7 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
                     tcp_rcv_fastopen_synack(sk, skb, &foc))
                         return -1;
                 
-                /* 根据情况进入延迟确认模式 */
+                /* 根据情况进入延迟确认模式 ??? Confused*/
                 if (sk->sk_write_pending ||
                     icsk->icsk_accept_queue.rskq_defer_accept ||
                     icsk->icsk_ack.pingpong) {
