@@ -635,14 +635,32 @@ reset_and_undo:
 
 \subsection{第三次握手——发送ACK包}
 \label{subsec:send_ack}
+	\subsubsection{基本调用关系}
 
-\subsubsection{tcp\_send\_ack}
+                \begin{figure}[htb]        
+                    \centering
+                    \includegraphics[width=\textwidth]  {images/Client:Send ACK.png}
+                \end{figure} 
+	
+	\subsubsection{tcp\_send\_ack}
 \label{subsubsec:tcp_send_ack}
 在\ref{subsec:recv_synack}分析的代码的最后，我们看到它调用了\mintinline{c}{tcp_send_ack()}来发送ACK包，
 从而实现第三次握手。
 
 \begin{minted}[linenos]{c}
-/* 该函数用于发送ACK，并更新窗口的大小 */
+/* 
+Location
+
+	net/ipv4/tcp_output.c
+
+Function:
+
+	This routine sends an ack and also updates the window.
+
+Parameter:
+
+	sk:传输控制块
+该函数用于发送ACK，并更新窗口的大小 */
 void tcp_send_ack(struct sock *sk)
 {
         struct sk_buff *buff;
@@ -650,7 +668,7 @@ void tcp_send_ack(struct sock *sk)
         /* 如果当前的套接字已经被关闭了，那么直接返回。 */
         if (sk->sk_state == TCP_CLOSE)
                 return;
-
+		/*what does it using for?*/
         tcp_ca_event(sk, CA_EVENT_NON_DELAYED_ACK);
 
         /* We are not putting this on the write queue, so
