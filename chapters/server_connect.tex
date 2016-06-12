@@ -515,17 +515,25 @@ void inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
             \subsubsection{tcp\_v4\_send\_synack}
 \begin{minted}[linenos]{C}
 /*
+Location：
+
+	net/ipv4/tcp_ipv4.c
+
 Function: 
+
     Send a SYN-ACK after having received a SYN.
     This still operates on a request_sock only, not on a big
     socket.
+
 Paramaters:
-    struct sock *sk                 :
-    struct dst_entry *dst           :
-    struct flowi *fl                :
-    struct request_sock *req        :
-    struct tcp_fastopen_cookie *foc :
-    bool attach_req                 :
+
+    sk:传输控制块
+    dst:存储缓存路由项中独立于协议的信息。
+    fl:
+    req:请求控制块
+    foc:快打开缓存
+    attach_req:
+
 */
 static int tcp_v4_send_synack(const struct sock *sk, struct dst_entry *dst,
                   struct flowi *fl,
@@ -567,14 +575,23 @@ static int tcp_v4_send_synack(const struct sock *sk, struct dst_entry *dst,
 
             \subsubsection{\mintinline{C}{tcp_make_synack}}
 
-                该函数用来构造一个SYN+ACK段，并初始化TCP首部及SKB中的各字段项，填入相应的选项，如MSS，SACK，窗口扩大因子，时间戳等。函数如下：
+                函数如下：
 
 \begin{minted}[linenos]{C}
 /*
+Location:
+
+	net/ipv4/ycp_output.c
+
 Function:
         tcp_make_synack - Prepare a SYN-ACK.
         Allocate one skb and build a SYNACK packet.
         @dst is consumed : Caller should not use it again.
+
+		该函数用来构造一个SYN+ACK段，
+		并初始化TCP首部及SKB中的各字段项，
+		填入相应的选项，如MSS，SACK，窗口扩大因子，时间戳等。
+
 Parameter:
         sk          : listener socket
         dst         : dst entry attached to the SYNACK
@@ -604,7 +621,7 @@ struct sk_buff *tcp_make_synack(const struct sock *sk, struct dst_entry *dst,
     }
 \end{minted}
 
-                首先为将要发送的数据申请发送缓存，如果没有申请到，那就会返回NULL。这里有一个\mintinline{C}{unlikely}优化分析，参见后面。todo.
+                首先为将要发送的数据申请发送缓存，如果没有申请到，那就会返回NULL。这里有一个\mintinline{C}{unlikely}优化分析，参见appendix(to do by ref).
 
 \begin{minted}[linenos]{C}
     /* Reserve space for headers. */
@@ -636,6 +653,7 @@ struct sk_buff *tcp_make_synack(const struct sock *sk, struct dst_entry *dst,
 \end{minted}
 
                 根据每一个路由器上的mss以及自身的mss来得到最大的mss。
+
 \begin{minted}[linenos]{C}
     memset(&opts, 0, sizeof(opts));
 #ifdef CONFIG_SYN_COOKIES
@@ -719,19 +737,33 @@ struct sk_buff *tcp_make_synack(const struct sock *sk, struct dst_entry *dst,
 
         \subsection{第三次握手：接收ACK段}
 
-                在服务器第二次我受的最后启动了建立连接定时器，等待客户端最后一次握手的ACK段。           
-                \subsubsection{第三次握手函数调用关系图}
-
-                \subsubsection{\mintinline{C}{tcp_v4_do_rcv}}
+			在服务器第二次我受的最后启动了建立连接定时器，等待客户端最后一次握手的ACK段。           
+			\subsubsection{第三次握手函数调用关系图}
+				\begin{figure}[htb]        
+					\center{\includegraphics[width=\textwidth]  {images/Server:Send ACK.png}}
+				\end{figure}  
+			\subsubsection{\mintinline{C}{tcp_v4_do_rcv}}
 \begin{minted}[linenos]{C}
-/* The socket must have it's spinlock held when we get
- * here, unless it is a TCP_LISTEN socket.
- *
- * We have a potential double-lock case here, so even when
- * doing backlog processing we use the BH locking scheme.
- * This is because we cannot sleep with the original spinlock
- * held.
- */
+/* 
+Location:
+
+	/net/ipv4/tcp_ipv4.c
+
+Function:
+
+	The socket must have it's spinlock held when we get
+	here, unless it is a TCP_LISTEN socket.
+
+	We have a potential double-lock case here, so even when
+	doing backlog processing we use the BH locking scheme.
+	This is because we cannot sleep with the original spinlock
+	held.
+
+Parameter:
+
+	sk:传输控制块。
+	skb:传输控制块缓冲区。
+*/
 int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 {
     struct sock *rsk;
@@ -800,7 +832,12 @@ static struct sock *tcp_v4_cookie_check(struct sock *sk, struct sk_buff *skb)
 
 \begin{minted}[linenos]{C}
 /*
+Location:
+
+	net/ipv4/tcp_minisock.c
+
 Functions:
+
     Queue segment on the new socket if the new socket is active,
     otherwise we just shortcircuit this and continue with
     the new socket.
@@ -811,7 +848,10 @@ Functions:
     locked is obtained, other packets cause the same connection to
     be created.
 Parameters:
-    
+
+	parent:父传出控制块
+	child:子传输控制块
+	skb:传输控制块缓存
 */
 
 int tcp_child_process(struct sock *parent, struct sock *child,
