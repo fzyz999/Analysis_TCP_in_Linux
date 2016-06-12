@@ -1058,6 +1058,7 @@ struct rtable {
     struct dst_entry    dst;		
 
     int         rt_genid;
+	/*表示路由表项的一些特性和标志*/
     unsigned int        rt_flags;
     __u16           rt_type;
     __u8            rt_is_input;
