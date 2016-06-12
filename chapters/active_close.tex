@@ -7,6 +7,21 @@
 代码如下：
 
 \begin{minted}[linenos]{c}
+/*
+Location:
+
+	net/ipv4/tcp.c
+
+Function:
+
+	Shutdown the sending side of a connection. Much like close except
+	that we don't receive shut down or sock_set_flag(sk, SOCK_DEAD).
+
+Parameter:
+
+	sk:传输控制块
+	how:???
+*/
 void tcp_shutdown(struct sock *sk, int how)
 {
         /*      We need to grab some memory, and put together a FIN,
@@ -61,13 +76,14 @@ static int tcp_close_state(struct sock *sk)
 可以看出，只有当当前状态为TCP\_ESTABLISHED、TCP\_SYN\_RECV、TCP\_CLOSE\_WAIT时，
 需要发送FIN包。这个也和TCP状态图一致。如果需要发送FIN包，则会调用
 \mintinline{c}{tcp_send_fin}。
+
 \begin{minted}[linenos]{c}
 void tcp_send_fin(struct sock *sk)
 {
         struct sk_buff *skb, *tskb = tcp_write_queue_tail(sk);
         struct tcp_sock *tp = tcp_sk(sk);
 
-        /* 这里做了一些优化。如果发送队列的末尾还有段没有发出去，则利用该段发送FIN。 */
+        /* 这里做了一些优化,如果发送队列的末尾还有段没有发出去，则利用该段发送FIN。 */
         if (tskb && (tcp_send_head(sk) || tcp_under_memory_pressure(sk))) {
           /* 如果当前正在发送的队列不为空，或者当前TCP处于内存压力下，则进行该优化 */
 coalesce:

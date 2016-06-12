@@ -1,9 +1,48 @@
 \section{拥塞控制实现}
 
-\subsection{拥塞控制状态机}
+	\subsection{拥塞控制状态机}
+		\subsubsection{基本转换}
 
-\subsection{拥塞控制状态的处理及转换}
+		\subsubsection{Open状态}
+			Open状态是常态，在这种状态下TCP发送方通过优化后的快速路径来处理接收ACK。当一个确认到达时，发送方根据拥塞窗口时小于还是大于慢启动阙值，按慢启动或者拥塞避免来增大拥塞窗口。
 
-\subsection{显式拥塞通知(ECN)}
+		\subsubsection{Disorder状态}
+			当发送方检测到DACK(重复确认)或者SACK(选择性确认)时，将转变为Disorder(无序)状态。在该状态下，拥塞窗口不做调整，而是每个新到的段出发一个新的数据段的发送。因此，TCP发送方遵循包守恒原则，该原则规定一个新包只有在一个老的包离开网络后才发送。在实践中该规定的表现类似于IETF的传输提议，允许当拥塞窗口较小或是上个传输窗口中有大量数据段丢失时，使用快速重传以更有效地恢复。
+
+		\subsubsection{CWR状态}
+			TCP发送方可能从显示拥塞通知、ICMP源端抑制(ICMP source quench)或是本地设备接收到拥塞通知。当收到一个拥塞通知时，发送方并不立刻减小拥塞窗口，而是每隔一个新到的ACK减小一个段直到窗口的大小减半为止。发送方在减小拥塞窗口大小的过程中不会有明显的重传，这就处于CWR(Congestion Window Reduced,拥塞窗口减小)状态。CWR状态可以被Revcovery状态或者Loss状态中断。进入拥塞窗口减小的函数如下：
+
+\begin{minted}[linenos]{C}
+/* 
+Location:
+
+	net/ipv4/tcp_input.c
+
+Function:
+
+	Enter CWR state. Disable cwnd undo since congestion is proven with ECN 
+
+Parameter:
+
+	sk:传输控制块
+*/
+void tcp_enter_cwr(struct sock *sk)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	/*进入CWR后就不需要窗口撤消了，因此需要清除拥塞控制
+		的慢启动阙值
+	*/
+	tp->prior_ssthresh = 0;
+	if (inet_csk(sk)->icsk_ca_state < TCP_CA_CWR) {
+		tp->undo_marker = 0;
+		tcp_init_cwnd_reduction(sk);
+		tcp_set_ca_state(sk, TCP_CA_CWR);
+	}
+}
+\end{minted}
+
+	\subsection{拥塞控制状态的处理及转换}
+
+	\subsection{显式拥塞通知(ECN)}
 
 
