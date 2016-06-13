@@ -2,7 +2,20 @@
 
 	\subsection{拥塞控制状态机}
 		\subsubsection{基本转换}
-
+\begin{minted}[linenos]{C}
+enum tcp_ca_state {
+	TCP_CA_Open = 0,
+#define TCPF_CA_Open	(1<<TCP_CA_Open)
+	TCP_CA_Disorder = 1,
+#define TCPF_CA_Disorder (1<<TCP_CA_Disorder)
+	TCP_CA_CWR = 2,
+#define TCPF_CA_CWR	(1<<TCP_CA_CWR)
+	TCP_CA_Recovery = 3,
+#define TCPF_CA_Recovery (1<<TCP_CA_Recovery)
+	TCP_CA_Loss = 4
+#define TCPF_CA_Loss	(1<<TCP_CA_Loss)
+};
+\end{minted}
 		\subsubsection{Open状态}
 			Open状态是常态，在这种状态下TCP发送方通过优化后的快速路径来处理接收ACK。当一个确认到达时，发送方根据拥塞窗口时小于还是大于慢启动阙值，按慢启动或者拥塞避免来增大拥塞窗口。
 
@@ -29,18 +42,72 @@ Parameter:
 void tcp_enter_cwr(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
-	/*进入CWR后就不需要窗口撤消了，因此需要清除拥塞控制
-		的慢启动阙值
+	/*进入CWR后就不需要窗口撤消了，
+      因此需要清除拥塞控制的慢启动阙值
 	*/
 	tp->prior_ssthresh = 0;
+	/*可以看出只有OPen状态和Disorder状态可以转移到该状态*/
 	if (inet_csk(sk)->icsk_ca_state < TCP_CA_CWR) {
+		/*湖北人与CWR状态后不允许在进行拥塞窗口撤消了*/		
 		tp->undo_marker = 0;
+		/*进行相关的初始化*/
 		tcp_init_cwnd_reduction(sk);
+		/*设置状态*/		
 		tcp_set_ca_state(sk, TCP_CA_CWR);
 	}
 }
 \end{minted}
 
+		对于函数\mintinline{C}{tcp_init_cwnd_reduction}的调用如下：
+\begin{minted}[linenos]{C}
+/*
+Location:
+
+	net/ipv4/tcp_input.c
+
+Function:
+	The cwnd reduction in CWR and Recovery uses the PRR algorithm in RFC 6937.
+	It computes the number of packets to send (sndcnt) based on packets newly
+	delivered:
+		1) If the packets in flight is larger than ssthresh, PRR spreads the
+			cwnd reductions across a full RTT.
+		2) Otherwise PRR uses packet conservation to send as much as delivered.
+			But when the retransmits are acked without further losses, PRR
+			slow starts cwnd up to ssthresh to speed up the recovery.
+
+parameter:
+
+	sk:传输控制块
+*/
+static void tcp_init_cwnd_reduction(struct sock *sk)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+
+	/*记录发送拥塞时的snd.nxt*/
+	tp->high_seq = tp->snd_nxt;
+	/*snd_nxt at the time of TLP retransmit*/
+	tp->tlp_high_seq = 0;
+	/*snd_cwnd_cnt表示自从上次调整拥塞窗口到
+	 目前为止接收到的总ACK段数，这里设置为0是因为
+	 刚刚改变拥塞控制算法为PRR。
+	*/
+	tp->snd_cwnd_cnt = 0;
+	/*prior_cwnd means Congestion window at start of Recovery
+		设置该值为当前拥塞窗口。
+	*/
+	tp->prior_cwnd = tp->snd_cwnd;
+	/*Number of newly delivered packets
+	  to receiver in Recovery,设置为0
+	*/
+	tp->prr_delivered = 0;
+	/*Total number of pkts sent during Recovery*/
+	tp->prr_out = 0;
+	/*根据给定的拥塞控制算法重新设置拥塞慢启动阙值*/
+	tp->snd_ssthresh = inet_csk(sk)->icsk_ca_ops->ssthresh(sk);
+	/*设置TCP_ECN_QUEUE_CWR标志，标识由于收到显示拥塞通知而进入拥塞状态*/
+	tcp_ecn_queue_cwr(tp);
+}
+\end{minted}
 	\subsection{拥塞控制状态的处理及转换}
 
 	\subsection{显式拥塞通知(ECN)}

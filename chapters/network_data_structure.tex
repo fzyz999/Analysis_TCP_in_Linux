@@ -1319,7 +1319,12 @@ struct tcp_sock {
  */
     u32 snd_ssthresh;   /* Slow start size threshold        */
     u32 snd_cwnd;   /* Sending congestion window        */
-    u32 snd_cwnd_cnt;   /* Linear increase counter      */
+    u32 snd_cwnd_cnt;   /* Linear increase counter      
+							自从上次调整拥塞窗口到目前为止接收到的总ACK段数。
+							如果该字段为零，则说明已经调整了拥塞窗口，且到目前
+							为止还没有接收到ACK段。调整拥塞窗口之后，每接收到
+							一个ACK，ACK段就会使snd_cwnd_cnt加1。
+						*/
     u32 snd_cwnd_clamp; /* Do not allow snd_cwnd to grow above this */
     u32 snd_cwnd_used;
     u32 snd_cwnd_stamp;
@@ -1366,7 +1371,12 @@ struct tcp_sock {
     u32 retrans_stamp;  /* Timestamp of the last retransmit,
                  * also used in SYN-SENT to remember stamp of
                  * the first SYN. */
-    u32 undo_marker;    /* snd_una upon a new recovery episode. */
+    u32 undo_marker;    /* snd_una upon a new recovery episode. 
+							在使用F-RTO算法进行发送超时处理，或进入Recovery进行重传，
+							或进入Loss开始慢启动时，记录当时SND.UNA,标记重传起始点。
+							它是检测是否可以进行拥塞控制撤销的条件之一，一般在完成
+							拥塞撤销操作或进入拥塞控制Loss状态后会清零。
+						*/
     int undo_retrans;   /* number of undoable retransmissions. */
     u32 total_retrans;  /* Total retransmits for entire connection */
 
