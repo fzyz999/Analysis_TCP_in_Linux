@@ -108,6 +108,9 @@ static void tcp_init_cwnd_reduction(struct sock *sk)
 	tcp_ecn_queue_cwr(tp);
 }
 \end{minted}
+		\subsubsection{Recovery状态}
+
+			当足够多的连续重复ACK到达后，发送方重传第一个没有被确认的段，进入Recovery(恢复)状态。默认情况下，进入Recovery状态的条件是三个连续的重复ACK，TCP拥塞控制规范也是这么推荐的。在Recovery状态期间，拥塞窗口的大小每隔一个新到的确认而减少一个段，和CWR状态类似。这种窗口减小过程终止与拥塞窗口大小等于ssthresh，即进入Recovery状态时，窗口大小的一半。拥塞窗口在恢复期间不增大，发送方重传那些被标记为丢失的段，或者根据包守恒原则在新数据上标记前向传输。发送方保持Recovery状态直到所有进入Recovery状态时正在发送的数据段都成功地被确认，之后该发送方恢复OPEN状态，重传超时有可能中断Recovery状态。
 	\subsection{拥塞控制状态的处理及转换}
 
 	\subsection{显式拥塞通知(ECN)}
