@@ -111,6 +111,137 @@ static void tcp_init_cwnd_reduction(struct sock *sk)
 		\subsubsection{Recovery状态}
 
 			当足够多的连续重复ACK到达后，发送方重传第一个没有被确认的段，进入Recovery(恢复)状态。默认情况下，进入Recovery状态的条件是三个连续的重复ACK，TCP拥塞控制规范也是这么推荐的。在Recovery状态期间，拥塞窗口的大小每隔一个新到的确认而减少一个段，和CWR状态类似。这种窗口减小过程终止与拥塞窗口大小等于ssthresh，即进入Recovery状态时，窗口大小的一半。拥塞窗口在恢复期间不增大，发送方重传那些被标记为丢失的段，或者根据包守恒原则在新数据上标记前向传输。发送方保持Recovery状态直到所有进入Recovery状态时正在发送的数据段都成功地被确认，之后该发送方恢复OPEN状态，重传超时有可能中断Recovery状态。
+
+		\subsubsection{Loss状态}
+			当一个RTO到期后，发送方进入Loss状态。所有正在发送的数据段标记为丢失，
+			拥塞窗口设置为一个段，发送方因此以慢启动算法增大拥塞窗口。
+			Loss和Recovery状态的区别是，Loss状态下，拥塞窗口在发送方设置为一个段后增大，
+			而Recovery状态下，拥塞窗口只能被减小。Loss状态不能被其他的状态中断，
+			因此，发送方只有在所有Loss开始时正在传输的数据都得到成功确认后，才能退到Open状态。
+			例如，快速重传不能在Loss状态期间被触发，这和NewReno规范是一致的。
+
+			当接收到的ACK的确认已经被之前的SACK确认过，这意味着我们记录的SACK信息不能呢个反映接收方的实际状态，
+			此时，也会进入Loss状态。
+
+			调用\mintinline{C}{tcp_enter_loss}进入Loss状态，如下：
+
+\begin{minted}[linenos]{C}
+/*
+Location:
+
+	net/ipv4/tcp_input.c
+
+Function: 
+	Enter Loss state. If we detect SACK reneging(违约), forget all SACK information
+	and reset tags completely, otherwise preserve SACKs. If receiver
+	dropped its ofo?? queue, we will know this due to reneging detection.
+
+Parameter:
+
+	sk:传输控制块
+
+*/
+void tcp_enter_loss(struct sock *sk)
+{
+	const struct inet_connection_sock *icsk = inet_csk(sk);
+	struct tcp_sock *tp = tcp_sk(sk);
+	struct sk_buff *skb;
+	bool new_recovery = icsk->icsk_ca_state < TCP_CA_Recovery;
+	bool is_reneg;			/* is receiver reneging on SACKs? */
+
+	/* Reduce ssthresh if it has not yet been made inside this window. */
+	if (icsk->icsk_ca_state <= TCP_CA_Disorder ||
+	    !after(tp->high_seq, tp->snd_una) ||
+	    (icsk->icsk_ca_state == TCP_CA_Loss && !icsk->icsk_retransmits)) {
+		/*保留当前的阙值*/		
+		tp->prior_ssthresh = tcp_current_ssthresh(sk);
+		/*计算新的阙值*/		
+		tp->snd_ssthresh = icsk->icsk_ca_ops->ssthresh(sk);
+		/*发送CA_EVENT_LOSS拥塞事件给具体拥塞算法模块*/		
+		tcp_ca_event(sk, CA_EVENT_LOSS);
+		/*
+			在下面的函数中会做以下两个事情:
+			tp->undo_marker = tp->snd_una;
+			/* Retransmission still in flight may cause DSACKs later. 
+				undo_retrans在恢复拥塞控制之前可进行撤销的重传段数？？？
+				retrans_out 重传并且还未得到确认的TCP段的数目
+			*/
+			tp->undo_retrans = tp->retrans_out ? : -1;
+		*/
+		tcp_init_undo(tp);
+	}
+	/*拥塞窗口大小设置为1*/
+	tp->snd_cwnd	   = 1;
+	/*snd_cwnd_cnt表示自从上次调整拥塞窗口到
+	 目前为止接收到的总ACK段数，自然设置为0*/
+	tp->snd_cwnd_cnt   = 0;
+	/*记录最近一次检验拥塞窗口的时间*/
+	tp->snd_cwnd_stamp = tcp_time_stamp;
+	/*重传并且还未得到确认的TCP段的数目设置为零*/
+	tp->retrans_out = 0;
+	/*丢失的包*/
+	tp->lost_out = 0;
+	/*查看当前的tp里是否由SACK选项字段，
+	有的话，返回1,没有的话返回0
+	根据这一点来判断是否需要重置tp中选择确认的包(sacked_out??? confused)的个数为0
+	*/
+	if (tcp_is_reno(tp))
+		tcp_reset_reno_sack(tp);
+	
+	skb = tcp_write_queue_head(sk);
+	/*判断接受者是否认为SACK违约???怎么理解呢？*/
+	is_reneg = skb && (TCP_SKB_CB(skb)->sacked & TCPCB_SACKED_ACKED);
+	if (is_reneg) {
+		NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_TCPSACKRENEGING);
+		tp->sacked_out = 0;
+		tp->fackets_out = 0;
+	}
+	/*清除有关重传的记忆变量*/
+	tcp_clear_all_retrans_hints(tp);
+
+	tcp_for_write_queue(skb, sk) {
+		if (skb == tcp_send_head(sk))
+			break;
+
+		TCP_SKB_CB(skb)->sacked &= (~TCPCB_TAGBITS)|TCPCB_SACKED_ACKED;
+		if (!(TCP_SKB_CB(skb)->sacked&TCPCB_SACKED_ACKED) || is_reneg) {
+			/*清除ACK标志*/
+			TCP_SKB_CB(skb)->sacked &= ~TCPCB_SACKED_ACKED;
+			/*添加LOST标志*/			
+			TCP_SKB_CB(skb)->sacked |= TCPCB_LOST;
+			/*统计丢失段的数量*/			
+			tp->lost_out += tcp_skb_pcount(skb);
+			/*重传的最大序号??????*/
+			tp->retransmit_high = TCP_SKB_CB(skb)->end_seq;
+		}
+	}
+	/*确认没有被确认的TCP段的数量left_out*/
+	tcp_verify_left_out(tp);
+
+	/* Timeout in disordered state after receiving substantial DUPACKs
+	 * suggests that the degree of reordering is over-estimated.
+	 */
+	if (icsk->icsk_ca_state <= TCP_CA_Disorder &&
+	    tp->sacked_out >= sysctl_tcp_reordering)
+		/*重新设置reordering*/
+		tp->reordering = min_t(unsigned int, tp->reordering,
+				       sysctl_tcp_reordering);
+	/*设置拥塞状态*/	
+	tcp_set_ca_state(sk, TCP_CA_Loss);
+	/*记录发生拥塞时的snd.nxt*/
+	tp->high_seq = tp->snd_nxt;
+	/*设置ecn_flags,表示发送方进入拥塞状态*/	
+	tcp_ecn_queue_cwr(tp);
+
+	/* F-RTO RFC5682 sec 3.1 step 1: retransmit SND.UNA if no previous
+	 * loss recovery is underway except recurring timeout(s) on
+	 * the same SND.UNA (sec 3.2). Disable F-RTO on path MTU probing
+	 */
+	tp->frto = sysctl_tcp_frto &&
+		   (new_recovery || icsk->icsk_retransmits) &&
+		   !inet_csk(sk)->icsk_mtup.probe_size;
+}
+\end{minted}
 	\subsection{拥塞控制状态的处理及转换}
 
 	\subsection{显式拥塞通知(ECN)}
