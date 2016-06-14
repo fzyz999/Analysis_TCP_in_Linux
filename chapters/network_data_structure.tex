@@ -1299,7 +1299,9 @@ struct tcp_sock {
     } rtt_min[3];
 
     u32 packets_out;    /* Packets which are "in flight"    */
-    u32 retrans_out;    /* Retransmitted packets out        */
+    u32 retrans_out;    /* Retransmitted packets out       
+							重传并且还未得到确认的TCP段的数目
+						 */
     u32 max_packets_out;  /* max packets_out in last window */
     u32 max_packets_seq;  /* right edge of max_packets_out flight */
 
@@ -1327,7 +1329,12 @@ struct tcp_sock {
 						*/
     u32 snd_cwnd_clamp; /* Do not allow snd_cwnd to grow above this */
     u32 snd_cwnd_used;
-    u32 snd_cwnd_stamp;
+    u32 snd_cwnd_stamp;	/*记录最近一次检验拥塞窗口的时间
+							在拥塞期间，接收到ACK后会进行
+							拥塞窗口的检验。而在非拥塞期间，为了防止由于应用
+							程序限制而造成拥塞窗口失效，因此在成功发送段后，
+							如果有必要也会检验拥塞窗口。
+						*/
     u32 prior_cwnd; /* Congestion window at start of Recovery. */
     u32 prr_delivered;  /* Number of newly delivered packets to
                  * receiver in Recovery. */
@@ -1338,7 +1345,10 @@ struct tcp_sock {
     u32 notsent_lowat;  /* TCP_NOTSENT_LOWAT */
     u32 pushed_seq; /* Last pushed seq, required to talk to windows */
     u32 lost_out;   /* Lost packets         */
-    u32 sacked_out; /* SACK'd packets           */
+    u32 sacked_out; /* SACK'd packets           
+						启用ACK时，通过SACK的TCP选项标识已接收到的段的数量。
+						不启用SACK时，标识接收到的重复确认的次数，该值在接收到确认新数据段时被清除。
+					*/
     u32 fackets_out;    /* FACK'd packets           */
 
     /* from STCP, retrans queue hinting */
@@ -1377,7 +1387,11 @@ struct tcp_sock {
 							它是检测是否可以进行拥塞控制撤销的条件之一，一般在完成
 							拥塞撤销操作或进入拥塞控制Loss状态后会清零。
 						*/
-    int undo_retrans;   /* number of undoable retransmissions. */
+    int undo_retrans;   /* number of undoable retransmissions. 
+							在恢复拥塞控制之前可进行撤销的重传段数。在进入FTRO算法或
+							拥塞状态Loss时，清零，在重传时计数，是检测是否可以进行拥塞
+							撤销的条件之一。
+						*/
     u32 total_retrans;  /* Total retransmits for entire connection */
 
     u32 urg_seq;    /* Seq of received urgent pointer */
