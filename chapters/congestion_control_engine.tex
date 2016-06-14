@@ -528,4 +528,58 @@ void tcp_cong_avoid_ai(struct tcp_sock *tp, u32 w, u32 acked)
 }
 \end{minted}
 
+\subsubsection{拥塞状态机状态变更}
+当拥塞状态机的状态发生改变时，会调用\mintinline{c}{set_state}函数，对应到
+CUBIC模块中，就是\mintinline{c}{bictcp_state}函数。
+
+\begin{minted}[linenos]{c}
+static void bictcp_state(struct sock *sk, u8 new_state)
+{
+        if (new_state == TCP_CA_Loss) {
+                bictcp_reset(inet_csk_ca(sk));
+                bictcp_hystart_reset(sk);
+        }
+}
+\end{minted}
+CUBIC只特殊处理了一种状态：\mintinline{c}{TCP_CA_Loss}。可以看到，当进入了LOSS以后，
+就会调用\mintinline{c}{bictcp_reset}函数，重置拥塞控制参数。这样，
+拥塞控制算法就会重新从慢启动开始执行。
+
+\subsubsection{撤销CWND减小}
+CUBIC通过返回当前拥塞窗口和上一次LOSS状态时的拥塞控制窗口中的最大值，来得到窗口缩小前
+的大小。
+\begin{minted}[linenos]{c}
+static u32 bictcp_undo_cwnd(struct sock *sk)
+{
+        struct bictcp *ca = inet_csk_ca(sk);
+
+        return max(tcp_sk(sk)->snd_cwnd, ca->loss_cwnd);
+}
+\end{minted}
+
+\subsubsection{处理CWND事件}
+
+\begin{minted}[linenos]{c}
+static void bictcp_cwnd_event(struct sock *sk, enum tcp_ca_event event)
+{
+        if (event == CA_EVENT_TX_START) {
+                struct bictcp *ca = inet_csk_ca(sk);
+                u32 now = tcp_time_stamp;
+                s32 delta;
+
+                delta = now - tcp_sk(sk)->lsndtime;
+
+                /* We were application limited (idle) for a while.
+                 * Shift epoch_start to keep cwnd growth to cubic curve.
+                 */
+                if (ca->epoch_start && delta > 0) {
+                        ca->epoch_start += delta;
+                        if (after(ca->epoch_start, now))
+                                ca->epoch_start = now;
+                }
+                return;
+        }
+}
+\end{minted}
+
 \subsubsection{hystart}
