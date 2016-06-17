@@ -307,7 +307,33 @@ high：允许所有tcp sockets用于排队缓冲数据报的页面量。(如果�
 缺省值为0
 为快速长距离网络启用 Binary Increase Congestion；这样可以更好地利用以 GB 速度进行操作的链接；对于 WAN 通信应该启用这个选项。
 \end{enumerate}
-\subsection{\mintinline{c}{__tcp_push_pending_frames}}
+	\subsection{TCP相关宏定义}
+		\subsubsection{标志宏}
+\begin{minted}[linenos]{C}
+#define FLAG_DATA		0x01 		/* Incoming frame contained data.		*/
+#define FLAG_WIN_UPDATE		0x02 	/* Incoming ACK was a window update.	*/
+#define FLAG_DATA_ACKED		0x04 	/* This ACK acknowledged new data.		*/
+#define FLAG_RETRANS_DATA_ACKED	0x08 /* "" "" some of which was retransmitted.	*/
+#define FLAG_SYN_ACKED		0x10 	/* This ACK acknowledged SYN.		*/
+#define FLAG_DATA_SACKED	0x20 	/* New SACK.				*/
+#define FLAG_ECE		0x40 		/* ECE in this ACK				*/
+#define FLAG_LOST_RETRANS	0x80 /* This ACK marks some retransmission lost */
+#define FLAG_SLOWPATH		0x100 /* Do not skip RFC checks for window update.*/
+#define FLAG_ORIG_SACK_ACKED	0x200 /* Never retransmitted data are (s)acked	*/
+#define FLAG_SND_UNA_ADVANCED	0x400 /* Snd_una was changed (!= FLAG_DATA_ACKED) */
+#define FLAG_DSACKING_ACK	0x800 /* SACK blocks contained D-SACK info */
+#define FLAG_SACK_RENEGING	0x2000 /* snd_una advanced to a sacked seq */
+#define FLAG_UPDATE_TS_RECENT	0x4000 /* tcp_replace_ts_recent() */
+
+#define FLAG_ACKED		(FLAG_DATA_ACKED|FLAG_SYN_ACKED)
+#define FLAG_NOT_DUP		(FLAG_DATA|FLAG_WIN_UPDATE|FLAG_ACKED)
+#define FLAG_CA_ALERT		(FLAG_DATA_SACKED|FLAG_ECE)
+#define FLAG_FORWARD_PROGRESS	(FLAG_ACKED|FLAG_DATA_SACKED)
+
+#define TCP_REMNANT (TCP_FLAG_FIN|TCP_FLAG_URG|TCP_FLAG_SYN|TCP_FLAG_PSH)
+#define TCP_HP_BITS (~(TCP_RESERVED_BITS|TCP_FLAG_PSH))
+\end{minted}
+	\subsection{\mintinline{c}{__tcp_push_pending_frames}}
 \begin{minted}[linenos]{c}
 /* 将等待在队列中的包全部发出。 */
 void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,

@@ -242,8 +242,7 @@ void tcp_enter_loss(struct sock *sk)
 		   !inet_csk(sk)->icsk_mtup.probe_size;
 }
 \end{minted}
-	\subsection{拥塞控制状态的处理及转换}
-		
+
 	\subsection{显式拥塞通知(ECN)}
 		在处理网络中的拥塞的时候，有一种方法叫做显式拥塞控制。从名字上看就是，
 		我们会直接收到关于拥塞的通知。至于是如何实现呢？我这里显简单说一下原理，
@@ -354,6 +353,185 @@ static inline int IP_ECN_set_ce(struct iphdr *iph)
 #define TCPHDR_SYN_ECN	(TCPHDR_SYN | TCPHDR_ECE | TCPHDR_CWR)
 \end{minted}
 
-			
+	\subsection{拥塞控制状态的处理及转换}
+		\mintinline{C}{tcp_ack}用于处理ACK段,通过处理ACK，TCP可以进行拥塞控制和流控制.
+		这里我们只是涉及和拥塞控制有关的代码.
+\begin{minted}[linenos]{C}
+/*
+Location:
 
+	net/ipv4/tcp_input.c
+
+Function:
+
+	处理ack段
+
+Parameter
+	待写.
+		
+*/
+static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
+	/*省略无关代码*/
+	/*
+		tcp_ack_is_dubious用于判断
+			1.ACK是不是重复的
+			2.是不是带有SACK选项并且有ECE	
+			3.是不是Open态
+		只要有一项为真就会返回1.
+	*/
+	if (tcp_ack_is_dubious(sk, flag)) {
+		/*需要再仔细看一看.*/		
+		is_dupack = !(flag & (FLAG_SND_UNA_ADVANCED | FLAG_NOT_DUP));
+		/*进入拥塞控制处理*/
+		tcp_fastretrans_alert(sk, acked, prior_unsacked,is_dupack, flag);
+	}
+	/*省略无关代码*/
+\end{minted}
+		\subsubsection{拥塞控制状态处理:\mintinline{C}{tcp_fastretrans_alert}}
+\begin{minted}[linenos]{C}
+/* 
+Location:
+
+	net/ipv4/tcp_input.c
+
+Function:
+
+	Process an event, which can update packets-in-flight not trivially.
+	Main goal of this function is to calculate new estimate for left_out,
+	taking into account both packets sitting in receiver's buffer and
+	packets lost by network.
+	
+	Besides that it does CWND reduction, when packet loss is detected
+	and changes state of machine.
+	
+	It does _not_ decide what to send, it is made in function
+	tcp_xmit_retransmit_queue().
+
+Parameter:
+
+	remain to be done.
+*/
+static void tcp_fastretrans_alert(struct sock *sk, const int acked,
+				  const int prior_unsacked,
+				  bool is_dupack, int flag)
+{
+	struct inet_connection_sock *icsk = inet_csk(sk);
+	struct tcp_sock *tp = tcp_sk(sk);
+	bool do_lost = is_dupack || ((flag & FLAG_DATA_SACKED) &&
+				    (tcp_fackets_out(tp) > tp->reordering));
+	int fast_rexmit = 0;
+
+	if (WARN_ON(!tp->packets_out && tp->sacked_out))
+		tp->sacked_out = 0;
+	if (WARN_ON(!tp->sacked_out && tp->fackets_out))
+		tp->fackets_out = 0;
+
+	/* Now state machine starts.
+	 * A. ECE, hence prohibit cwnd undoing, the reduction is required. */
+	if (flag & FLAG_ECE)
+		tp->prior_ssthresh = 0;
+
+	/* B. In all the states check for reneging SACKs. */
+	if (tcp_check_sack_reneging(sk, flag))
+		return;
+
+	/* C. Check consistency of the current state. */
+	tcp_verify_left_out(tp);
+
+	/* D. Check state exit conditions. State can be terminated
+	 *    when high_seq is ACKed. */
+	if (icsk->icsk_ca_state == TCP_CA_Open) {
+		WARN_ON(tp->retrans_out != 0);
+		tp->retrans_stamp = 0;
+	} else if (!before(tp->snd_una, tp->high_seq)) {
+		switch (icsk->icsk_ca_state) {
+		case TCP_CA_CWR:
+			/* CWR is to be held something *above* high_seq
+			 * is ACKed for CWR bit to reach receiver. */
+			if (tp->snd_una != tp->high_seq) {
+				tcp_end_cwnd_reduction(sk);
+				tcp_set_ca_state(sk, TCP_CA_Open);
+			}
+			break;
+
+		case TCP_CA_Recovery:
+			if (tcp_is_reno(tp))
+				tcp_reset_reno_sack(tp);
+			if (tcp_try_undo_recovery(sk))
+				return;
+			tcp_end_cwnd_reduction(sk);
+			break;
+		}
+	}
+
+	/* Use RACK to detect loss */
+	if (sysctl_tcp_recovery & TCP_RACK_LOST_RETRANS &&
+	    tcp_rack_mark_lost(sk))
+		flag |= FLAG_LOST_RETRANS;
+
+	/* E. Process state. */
+	switch (icsk->icsk_ca_state) {
+	case TCP_CA_Recovery:
+		if (!(flag & FLAG_SND_UNA_ADVANCED)) {
+			if (tcp_is_reno(tp) && is_dupack)
+				tcp_add_reno_sack(sk);
+		} else {
+			if (tcp_try_undo_partial(sk, acked, prior_unsacked, flag))
+				return;
+			/* Partial ACK arrived. Force fast retransmit. */
+			do_lost = tcp_is_reno(tp) ||
+				  tcp_fackets_out(tp) > tp->reordering;
+		}
+		if (tcp_try_undo_dsack(sk)) {
+			tcp_try_keep_open(sk);
+			return;
+		}
+		break;
+	case TCP_CA_Loss:
+		tcp_process_loss(sk, flag, is_dupack);
+		if (icsk->icsk_ca_state != TCP_CA_Open &&
+		    !(flag & FLAG_LOST_RETRANS))
+			return;
+		/* Change state if cwnd is undone or retransmits are lost */
+	default:
+		if (tcp_is_reno(tp)) {
+			if (flag & FLAG_SND_UNA_ADVANCED)
+				tcp_reset_reno_sack(tp);
+			if (is_dupack)
+				tcp_add_reno_sack(sk);
+		}
+
+		if (icsk->icsk_ca_state <= TCP_CA_Disorder)
+			tcp_try_undo_dsack(sk);
+
+		if (!tcp_time_to_recover(sk, flag)) {
+			tcp_try_to_open(sk, flag, prior_unsacked);
+			return;
+		}
+
+		/* MTU probe failure: don't reduce cwnd */
+		if (icsk->icsk_ca_state < TCP_CA_CWR &&
+		    icsk->icsk_mtup.probe_size &&
+		    tp->snd_una == tp->mtu_probe.probe_seq_start) {
+			tcp_mtup_probe_failed(sk);
+			/* Restores the reduction we did in tcp_mtup_probe() */
+			tp->snd_cwnd++;
+			tcp_simple_retransmit(sk);
+			return;
+		}
+
+		/* Otherwise enter Recovery state */
+		tcp_enter_recovery(sk, (flag & FLAG_ECE));
+		fast_rexmit = 1;
+	}
+
+	if (do_lost)
+		tcp_update_scoreboard(sk, fast_rexmit);
+	tcp_cwnd_reduction(sk, prior_unsacked, fast_rexmit, flag);
+	tcp_xmit_retransmit_queue(sk);
+}
+
+\end{minted}
+	
+	
 
