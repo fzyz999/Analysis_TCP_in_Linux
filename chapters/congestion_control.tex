@@ -418,7 +418,7 @@ Parameter:
 	prior_unsacked:在拥塞控制状态转换之前,从发送队列
 				   发出而未得到确认的TCP段的数目.
 	is_dupack:是否有重复ACK??需要好好分析分析。
-	flag:
+	flag:标志位
 */
 static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 				  const int prior_unsacked,
@@ -426,24 +426,46 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 {
 	struct inet_connection_sock *icsk = inet_csk(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
-	bool do_lost = is_dupack || ((flag & FLAG_DATA_SACKED) &&
-				    (tcp_fackets_out(tp) > tp->reordering));
+	/**/
+	bool do_lost = is_dupack || ((flag & FLAG_DATA_SACKED) && (tcp_fackets_out(tp) > tp->reordering));
+	/*means what?????*/	
 	int fast_rexmit = 0;
-
+	/*WARN的返回值是什么呢？
+		如果没有待确认的包以及并且选择确认的包的数量不为0，
+		就置其为零。
+	*/
 	if (WARN_ON(!tp->packets_out && tp->sacked_out))
 		tp->sacked_out = 0;
+	/*
+		如果选择确认的包的数量为零，并且未确认与已选择确认之间存在段，似乎存在矛盾？
+		to do.
+	*/
 	if (WARN_ON(!tp->sacked_out && tp->fackets_out))
 		tp->fackets_out = 0;
+\end{minted}
 
-	/* Now state machine starts.
-	 * A. ECE, hence prohibit cwnd undoing, the reduction is required. */
+		接下来，拥塞状态处理机启动。
+\begin{minted}[linenos]{C}
+	/* 	Now state machine starts.
+	 	A. ECE, hence prohibit(阻止) cwnd undoing, the reduction is required. 
+		由于接收到显式拥塞通知，因此禁止窗口撤销，并且开始减小拥塞窗口。
+	*/
 	if (flag & FLAG_ECE)
 		tp->prior_ssthresh = 0;
+\end{minted}
 
+	如果接收到的ACK指向已记录的SACK，这说明我们记录的SACK并没有反应接收方的真实状态。
+	也就是说接收方现在已经处于严重的拥塞状态或者在处理上有bug，那么我们接下来就要按照重传超时的方式去处理。
+	因为按照正常的逻辑流程，接受的ACK不应该指向已记录的SACK，而应指向SACK并未包含的，这说明接收方由于拥塞已经把
+	SACK部分接收的段已经丢弃或者处理上由BUG，我们必须需要重传了。
+	
+\begin{minted}[linenos]{C}
 	/* B. In all the states check for reneging SACKs. */
 	if (tcp_check_sack_reneging(sk, flag))
 		return;
+\end{minted}
 
+\begin{minted}[linenos]{C}
 	/* C. Check consistency of the current state. */
 	tcp_verify_left_out(tp);
 

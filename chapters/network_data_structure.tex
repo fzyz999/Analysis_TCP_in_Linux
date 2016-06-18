@@ -1298,7 +1298,10 @@ struct tcp_sock {
         u32 rtt, ts;    /* RTT in usec and sampling time in jiffies. */
     } rtt_min[3];
 
-    u32 packets_out;    /* Packets which are "in flight"    */
+    u32 packets_out;    /* Packets which are "in flight"    
+							发送方发送出去但是还未得到确认的TCP段的数目
+							packets_out=SND.NXT-SND.UNA				
+						*/
     u32 retrans_out;    /* Retransmitted packets out       
 							重传并且还未得到确认的TCP段的数目
 						 */
@@ -1349,7 +1352,13 @@ struct tcp_sock {
 						启用ACK时，通过SACK的TCP选项标识已接收到的段的数量。
 						不启用SACK时，标识接收到的重复确认的次数，该值在接收到确认新数据段时被清除。
 					*/
-    u32 fackets_out;    /* FACK'd packets           */
+    u32 fackets_out;    /* FACK'd packets           
+							记录SND.UNA与(SACK选项中目前接收方收到的段中最高序号段)之间的段数。FACK算法
+							用SACK选项来计算丢失在网络中上的段数
+							lost_out=fackets_out-sacked_out
+							left_out=fackets_out
+							找时间画一张图.???? remain ro do.
+						*/
 
     /* from STCP, retrans queue hinting */
     struct sk_buff* lost_skb_hint;

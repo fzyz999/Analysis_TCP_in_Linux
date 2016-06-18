@@ -243,7 +243,27 @@ static inline bool __must_check IS_ERR_OR_NULL(__force const void *ptr)
 				至于PTR\_ERR(), ERR\_PTR()，只是强制转换以下而已。而PTR\_ERR()只是返回错误代码，也就是提供一个信息给调用者，如果你只需要知道是否出错，而不在乎因为什么而出错，那你当然不用调用PTR\_ERR()了。
 
 				如果指针指向了最后一个page，那么说明实际上这不是一个有效的指针。这个指针里保存的实际上是一种错误代码。而通常很常用的方法就是先用IS\_ERR()来判断是否是错误，然后如果是，那么就调用PTR\_ERR()来返回这个错误代码。
-	
+		\subsection{调试函数}
+			\subsubsection{BUG\_ON}
+\begin{minted}[linenos]{C}
+   #define BUG_ON(condition) do { /
+         if (unlikely((condition)!=0)) /
+         BUG(); /
+    } while(0)
+\end{minted}
+    			如果在程序的执行过程中，觉得该condition下是一个BUG，
+				可以添加此调试信息，查看对应堆栈内容。
+			\subsubsection{WARN\_ON}			
+    			而WARN\_ON则是调用dump\_stack，打印堆栈信息，不会OOPS
+\begin{minted}[linenos]{C}
+  #define WARN_ON(condition) do { /
+      if (unlikely((condition)!=0)) { /
+             printk("Badness in %s at %s:%d/n", __FUNCTION__, __FILE__, __LINE__); /
+             dump_stack(); /
+        } /
+     } while (0)
+\end{minted}
+
 	\section{C语言}
 		\subsection{结构体初始化}
 \begin{minted}[linenos]{C}
