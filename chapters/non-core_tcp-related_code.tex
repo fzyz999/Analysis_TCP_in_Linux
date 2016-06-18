@@ -349,6 +349,42 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
                 tcp_check_probe_timer(sk);
 }
 \end{minted}
+	\subsection{About ACK}	
+		\subsubsection{\mintinline{c}{tcp_ack_is_dubious}}
+\begin{minted}[linenos]{C}
+/*
+Location:
+
+	net/ipv4/tcp_input.c
+
+Function:
+
+	判断一个ACK是否可疑。
+
+Parameter:
+
+	sk:传输控制块
+	flag:FLAG标志位
+*/
+static inline bool tcp_ack_is_dubious(const struct sock *sk, const int flag)
+{
+	return !(flag & FLAG_NOT_DUP) || (flag & FLAG_CA_ALERT) ||
+		inet_csk(sk)->icsk_ca_state != TCP_CA_Open;
+}
+\end{minted}
+
+	什么样的ACK算是可疑的呢?如下:
+\begin{enumerate}
+\item[非FLAG\_NOT\_DUP]	通过查看相关的宏定义我们知道FLAG\_NOT\_DUP为(FLAG\_DATA|FLAG\_WIN\_UPDATE|FLAG\_ACKED)
+						而FLAG\_ACKED又为(FLAG\_DATA\_ACKED|FLAG\_SYN\_ACKED),故而
+						即其所包含的种类有接收的ACK段是(1)负荷数据携带的;(2)更新窗口的;(3)确认新数据的;(4)确认SYN段的。
+						如果上述四种都不属于那是可疑的了。
+			
+\item[FLAG\_CA\_ALERT]	通过查看相关的宏定义我们知道FLAG\_CA\_ALERT为(FLAG\_DATA\_SACKED|FLAG\_ECE)，如果被发现时确认新数据的ACK或者
+						在ACK中存在ECE标志，即收到显式拥塞通知，也认为是可疑的。\color{red}{似乎和上面的有矛盾，}
+\item[非Open]			即当前拥塞状态不为Open。
+\end{enumerate}
+	
 
 \subsection{\mintinline{c}{tcp_fin_time}}
 计算等待接收FIN的超时时间。超时时间至少为$\frac{7}{2}$倍的rto。
