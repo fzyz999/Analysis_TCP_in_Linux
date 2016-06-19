@@ -457,7 +457,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 	如果接收到的ACK指向已记录的SACK，这说明我们记录的SACK并没有反应接收方的真实状态。
 	也就是说接收方现在已经处于严重的拥塞状态或者在处理上有bug，那么我们接下来就要按照重传超时的方式去处理。
 	因为按照正常的逻辑流程，接受的ACK不应该指向已记录的SACK，而应指向SACK并未包含的，这说明接收方由于拥塞已经把
-	SACK部分接收的段已经丢弃或者处理上由BUG，我们必须需要重传了。
+	SACK部分接收的段已经丢弃或者处理上有BUG，我们必须需要重传了。
 	
 \begin{minted}[linenos]{C}
 	/* B. In all the states check for reneging SACKs. */
@@ -465,10 +465,13 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 		return;
 \end{minted}
 
+	检查当前当前状态的一致性。???what dose if mean???
 \begin{minted}[linenos]{C}
 	/* C. Check consistency of the current state. */
 	tcp_verify_left_out(tp);
+\end{minted}
 
+\begin{minted}[linenos]{C}
 	/* D. Check state exit conditions. State can be terminated
 	 *    when high_seq is ACKed. */
 	if (icsk->icsk_ca_state == TCP_CA_Open) {

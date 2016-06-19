@@ -333,6 +333,33 @@ high：允许所有tcp sockets用于排队缓冲数据报的页面量。(如果�
 #define TCP_REMNANT (TCP_FLAG_FIN|TCP_FLAG_URG|TCP_FLAG_SYN|TCP_FLAG_PSH)
 #define TCP_HP_BITS (~(TCP_RESERVED_BITS|TCP_FLAG_PSH))
 \end{minted}
+
+			这里我们需要介绍几个相关的概念，如下：
+
+\begin{enumerate}
+\item[SACK]			Selective Acknowledgment(SACK)，这种方式需要在TCP头里加一个SACK的东西，ACK还是Fast Retransmit的ACK，
+					SACK则是汇报收到的数据碎版。这样，在发送端就可以根据回传的SACK来知道哪些数据到了，哪些没有到。
+					于是就优化了 Fast Retransmit的算法。当然，这个协议需要两边都支持。
+\item[Reneging]		所谓Reneging的意思就是违约，接收方有权把已经报给发送端SACK里的数据给丢了。
+					当然，我们肯定是不鼓励这样做的，因为这个事会把问题复杂化。
+					但是，接收方可能会由于一些极端情况这么做，比如要把内存给别的更重要的东西。
+					所以，发送方也不能完全依赖SACK，主要还是要依赖ACK，并维护Time-Out。
+					如果后续的ACK没有增长，那么还是要把SACK的东西重传，另外，接收端这边永远不能把SACK的包标记为Ack。
+　　					\color{red}{注意}：SACK会消费发送方的资源，试想，如果一个攻击者给数据发送方发一堆SACK的选项，
+					这会导致发送方开始要重传甚至遍历已经发出的数据，这会消耗很多发送端的资源。
+
+\item[D-SACK]		Duplicate SACK又称D-SACK，其主要使用了SACK来告诉发送方有哪些数据被重复接收了。
+					D-SACK使用了SACK的第一个段来做标志，如果SACK的第一个段的范围被ACK所覆盖，那么就是D-SACK。
+					如果SACK的第一个段的范围被SACK的第二个段覆盖，那么就是D-SACK。引入了D-SACK，有这么几个好处：
+　						1）可以让发送方知道，是发出去的包丢了，还是回来的ACK包丢了。
+
+　　						2）是不是自己的timeout太小了，导致重传。
+
+　						3）网络上出现了先发的包后到的情况（又称reordering）
+
+　　						4）网络上是不是把我的数据包给复制了。
+\end{enumerate}
+
 	\subsection{\mintinline{c}{__tcp_push_pending_frames}}
 \begin{minted}[linenos]{c}
 /* 将等待在队列中的包全部发出。 */
@@ -384,8 +411,84 @@ static inline bool tcp_ack_is_dubious(const struct sock *sk, const int flag)
 						在ACK中存在ECE标志，即收到显式拥塞通知，也认为是可疑的。\color{red}{似乎和上面的有矛盾，}
 \item[非Open]			即当前拥塞状态不为Open。
 \end{enumerate}
-	
+		\subsubsection{\mintinline{C}{tcp_check_sack_reneging}}
+			如果接收到的确认ACK指向之前记录的SACK，这说明之前记录的SACK并没有反映接收方的真实状态。
+			接收路径上很有可能已经有拥塞发生或者接收主机正在经历严重的拥塞甚至处理出现了BUG，
+			因为按照正常的逻辑流程，接收的ACK不应该指向已记录的SACK，
+			而应该指向SACK后面未接收的地方。通常情况下，此时接收方已经删除了保存到失序队列中的段。
+			
+			为了避免短暂奇怪的看起来像是违约的SACK导致更大量的重传，我们给接收者一些时间,即$max(RTT/2, 10ms)$
+			以便于让他可以给我们更多的ACK，从而可以使得SACK的记分板变得正常一点。如果这个表面上的违约一直持续到重传时间结束，
+			我们就把SACK的记分板清除掉。
+\begin{minted}[linenos]{C}
+/*
+Location:
 
+	net/ipv4/tcp_input.c
+
+Function:
+
+	If ACK arrived pointing to a remembered SACK, it means that our
+	remembered SACKs do not reflect real state of receiver i.e.
+	receiver _host_ is heavily congested (or buggy).
+
+	To avoid big spurious(假的) retransmission bursts(爆发) due to transient SACK
+	scoreboard oddities that look like reneging, we give the receiver a
+	little time (max(RTT/2, 10ms)) to send us some more ACKs that will
+	restore sanity to the SACK scoreboard. If the apparent reneging
+	persists until this RTO then we'll clear the SACK scoreboard.
+
+Paramater:
+
+	sk:传输控制块。
+	flag:相关标志位
+*/
+static bool tcp_check_sack_reneging(struct sock *sk, int flag)
+{
+	//如果确认接收方违约了。
+	if (flag & FLAG_SACK_RENEGING) {
+		struct tcp_sock *tp = tcp_sk(sk);
+		//计算超时重传时间
+		unsigned long delay = max(usecs_to_jiffies(tp->srtt_us >> 4),
+					  msecs_to_jiffies(10));
+		//更新超时重传定时器		???有时间好好分析一下。
+		inet_csk_reset_xmit_timer(sk, ICSK_TIME_RETRANS,
+					  delay, TCP_RTO_MAX);
+		return true;
+	}
+	return false;
+}
+\end{minted}
+
+	\subsection{About Window Size and Segment Sent}
+		
+		\subsubsection{\mintinline{C}{tcp_left_out}}
+			该函数用于计算已经发出去的TCP段(离开主机)中一共有多少个tcp段还未得到确认。
+\begin{minted}[linenos]{C}
+static inline unsigned int tcp_left_out(const struct tcp_sock *tp)
+{
+	return tp->sacked_out + tp->lost_out;
+}
+\end{minted}
+		\subsubsection{\mintinline{C}{tcp_verify_left_out}}
+			该函数的功能主要是判断left\_out是否大于packets\_out,当然，这是不可能的，因为
+			前者是已经发送离开主机的未被确认的段数，而后者是已经离开发送队列(不一定离开主机)
+			但未确认的段数。故而，这里有一个WARN\_ON，以便输出相应的警告信息。
+\begin{minted}[linenos]{C}
+/* 
+Location:
+
+	include/net/tcp.h
+
+Function:
+
+	Use define here intentionally(有意地) to get WARN_ON location shown at the caller 
+
+Parameter:
+
+*/
+#define tcp_verify_left_out(tp)	WARN_ON(tcp_left_out(tp) > tp->packets_out)		
+\end{minted}
 \subsection{\mintinline{c}{tcp_fin_time}}
 计算等待接收FIN的超时时间。超时时间至少为$\frac{7}{2}$倍的rto。
 \begin{minted}[linenos]{c}
