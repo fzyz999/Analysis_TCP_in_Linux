@@ -1181,7 +1181,9 @@ struct tcp_options_received {
         wscale_ok : 1,       /* Wscale seen on SYN packet                   
 								标志接收方是否支持窗口扩大因子，只出现在SYN段中。	
 							 */
-        sack_ok : 4,          /* SACK seen on SYN packet                     */
+        sack_ok : 4,          	/* SACK seen on SYN packet                     
+									标记是否对方提供SACK服务
+								*/
         snd_wscale : 4,       /* Window scaling received from sender         */
         rcv_wscale : 4;       /* Window scaling to send to receiver          */
     u8  num_sacks;            /* Number of SACK blocks                       */
@@ -1385,7 +1387,9 @@ struct tcp_sock {
     u32     retransmit_high;    /* L-bits may be on up to this seqno */
 
     u32 prior_ssthresh; /* ssthresh saved at recovery start */
-    u32 high_seq;   /* snd_nxt at onset of congestion   */
+    u32 high_seq;   /* snd_nxt at onset of congestion   
+						开始拥塞的时候下一个要发送的序号字节					
+					*/
 
     u32 retrans_stamp;  /* Timestamp of the last retransmit,
                  * also used in SYN-SENT to remember stamp of

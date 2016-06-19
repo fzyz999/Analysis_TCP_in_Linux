@@ -471,31 +471,47 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 	tcp_verify_left_out(tp);
 \end{minted}
 
+	检测从拥塞状态返回的条件，当high\_seq被确认时，结束拥塞状态，进入Open状态。
 \begin{minted}[linenos]{C}
 	/* D. Check state exit conditions. State can be terminated
 	 *    when high_seq is ACKed. */
 	if (icsk->icsk_ca_state == TCP_CA_Open) {
+		//根据条件判断是否输出警告信息		
 		WARN_ON(tp->retrans_out != 0);
+		//消除上一次的重传信息
 		tp->retrans_stamp = 0;
 	} else if (!before(tp->snd_una, tp->high_seq)) {
+		/*	进入的条件是tp->snd_una>=tp->high_seq,即
+			拥塞时，记录的SND.NXT被确认了。拥塞情况已经好转很多了。
+			此时如果拥塞状态不处于OPen状态，可根据当前的状态结束回
+			到Open状态。
+		*/
 		switch (icsk->icsk_ca_state) {
-		case TCP_CA_CWR:
-			/* CWR is to be held something *above* high_seq
-			 * is ACKed for CWR bit to reach receiver. */
-			if (tp->snd_una != tp->high_seq) {
-				tcp_end_cwnd_reduction(sk);
-				tcp_set_ca_state(sk, TCP_CA_Open);
-			}
-			break;
+			case TCP_CA_CWR:
+				/* CWR is to be held something *above* high_seq
+				 * is ACKed for CWR bit to reach receiver. */
+				if (tp->snd_una != tp->high_seq) {
+					//窗口减小					
+					tcp_end_cwnd_reduction(sk);
+					//回到OPen状态??? CA 是什么意思。			
+					tcp_set_ca_state(sk, TCP_CA_Open);
+				}
+				break;
 
-		case TCP_CA_Recovery:
-			if (tcp_is_reno(tp))
-				tcp_reset_reno_sack(tp);
-			if (tcp_try_undo_recovery(sk))
-				return;
-			tcp_end_cwnd_reduction(sk);
-			break;
-		}
+			case TCP_CA_Recovery:
+				//判断对方是否提供了SACK服务，提供，返回0,否则返回1
+				if (tcp_is_reno(tp))
+					//设置sacked_out为0
+					tcp_reset_reno_sack(tp);
+				/*尝试从Recovery状态撤销
+					成功，就直接返回。
+				*/
+				if (tcp_try_undo_recovery(sk))
+					return;
+				//结束拥塞窗口缩小
+				tcp_end_cwnd_reduction(sk);
+				break;
+			}
 	}
 
 	/* Use RACK to detect loss */
@@ -505,58 +521,58 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 
 	/* E. Process state. */
 	switch (icsk->icsk_ca_state) {
-	case TCP_CA_Recovery:
-		if (!(flag & FLAG_SND_UNA_ADVANCED)) {
-			if (tcp_is_reno(tp) && is_dupack)
-				tcp_add_reno_sack(sk);
-		} else {
-			if (tcp_try_undo_partial(sk, acked, prior_unsacked, flag))
+		case TCP_CA_Recovery:
+			if (!(flag & FLAG_SND_UNA_ADVANCED)) {
+				if (tcp_is_reno(tp) && is_dupack)
+					tcp_add_reno_sack(sk);
+			} else {
+				if (tcp_try_undo_partial(sk, acked, prior_unsacked, flag))
+					return;
+				/* Partial ACK arrived. Force fast retransmit. */
+				do_lost = tcp_is_reno(tp) ||
+					  tcp_fackets_out(tp) > tp->reordering;
+			}
+			if (tcp_try_undo_dsack(sk)) {
+				tcp_try_keep_open(sk);
 				return;
-			/* Partial ACK arrived. Force fast retransmit. */
-			do_lost = tcp_is_reno(tp) ||
-				  tcp_fackets_out(tp) > tp->reordering;
-		}
-		if (tcp_try_undo_dsack(sk)) {
-			tcp_try_keep_open(sk);
-			return;
-		}
-		break;
-	case TCP_CA_Loss:
-		tcp_process_loss(sk, flag, is_dupack);
-		if (icsk->icsk_ca_state != TCP_CA_Open &&
-		    !(flag & FLAG_LOST_RETRANS))
-			return;
-		/* Change state if cwnd is undone or retransmits are lost */
-	default:
-		if (tcp_is_reno(tp)) {
-			if (flag & FLAG_SND_UNA_ADVANCED)
-				tcp_reset_reno_sack(tp);
-			if (is_dupack)
-				tcp_add_reno_sack(sk);
-		}
+			}
+			break;
+		case TCP_CA_Loss:
+			tcp_process_loss(sk, flag, is_dupack);
+			if (icsk->icsk_ca_state != TCP_CA_Open &&
+				!(flag & FLAG_LOST_RETRANS))
+				return;
+			/* Change state if cwnd is undone or retransmits are lost */
+		default:
+			if (tcp_is_reno(tp)) {
+				if (flag & FLAG_SND_UNA_ADVANCED)
+					tcp_reset_reno_sack(tp);
+				if (is_dupack)
+					tcp_add_reno_sack(sk);
+			}
 
-		if (icsk->icsk_ca_state <= TCP_CA_Disorder)
-			tcp_try_undo_dsack(sk);
+			if (icsk->icsk_ca_state <= TCP_CA_Disorder)
+				tcp_try_undo_dsack(sk);
 
-		if (!tcp_time_to_recover(sk, flag)) {
-			tcp_try_to_open(sk, flag, prior_unsacked);
-			return;
-		}
+			if (!tcp_time_to_recover(sk, flag)) {
+				tcp_try_to_open(sk, flag, prior_unsacked);
+				return;
+			}
 
-		/* MTU probe failure: don't reduce cwnd */
-		if (icsk->icsk_ca_state < TCP_CA_CWR &&
-		    icsk->icsk_mtup.probe_size &&
-		    tp->snd_una == tp->mtu_probe.probe_seq_start) {
-			tcp_mtup_probe_failed(sk);
-			/* Restores the reduction we did in tcp_mtup_probe() */
-			tp->snd_cwnd++;
-			tcp_simple_retransmit(sk);
-			return;
-		}
+			/* MTU probe failure: don't reduce cwnd */
+			if (icsk->icsk_ca_state < TCP_CA_CWR &&
+				icsk->icsk_mtup.probe_size &&
+				tp->snd_una == tp->mtu_probe.probe_seq_start) {
+				tcp_mtup_probe_failed(sk);
+				/* Restores the reduction we did in tcp_mtup_probe() */
+				tp->snd_cwnd++;
+				tcp_simple_retransmit(sk);
+				return;
+			}
 
-		/* Otherwise enter Recovery state */
-		tcp_enter_recovery(sk, (flag & FLAG_ECE));
-		fast_rexmit = 1;
+			/* Otherwise enter Recovery state */
+			tcp_enter_recovery(sk, (flag & FLAG_ECE));
+			fast_rexmit = 1;
 	}
 
 	if (do_lost)
