@@ -182,6 +182,18 @@ void tcp_unregister_congestion_control(struct tcp_congestion_ops *ca)
 \subsection{CUBIC拥塞控制算法}
 Cubic算法是Linux中默认的拥塞控制算法。
 
+\subsubsection{CUBIC算法介绍}
+CUBIC算法的思路是这样的：当发生了一次丢包后，它将此时的窗口大小定义为$W_{max}$。之后，
+进行乘法减小。这里与标准TCP不同，乘法减小时不是直接减小一半，而是乘一个常系数$\beta$。
+快重传和快恢复的部分和标准TCP一致。当它进入到拥塞避免阶段以后，它根据cubic函数凹的部分
+进行窗口的增长，直至到达$W_{max}$为止。之后，它会根据cubic函数凸的部分继续增长。
+
+\begin{figure}[htpb]
+\centering
+\includegraphics[width=\textwidth]  {images/cubic.png}
+\caption{Cubic函数}
+\end{figure}
+
 \subsubsection{模块定义}
 在Linux中，拥塞控制算法是作为模块单独实现的。Cubic也不例外。首先，定义了模块的基本信息
 \begin{minted}[linenos]{c}
@@ -558,7 +570,15 @@ static u32 bictcp_undo_cwnd(struct sock *sk)
 \end{minted}
 
 \subsubsection{处理CWND事件}
-
+如果目前没有任何数据包在传输了，那么需要重新设定\mintinline{c}{epoch_start}。
+这个是为了解决当应用程序在一段时间内不发送任何数据时，\mintinline{c}{now-epoch_start}
+会变得很大，由此，根据Cubic函数计算出来的目标拥塞窗口值也会变得很大。但显然，
+这是一个错误。因此，需要在应用程序重新开始发送数据时，重置\mintinline{c}{epoch_start}
+的值。在这里\mintinline{c}{CA_EVENT_TX_START}事件表明目前所有的包都已经被确认了
+（即没有任何正在传输的包），而应用程序又开始发送新的数据包了。所有的包都被确认说明
+应用程序有一段时间没有发包。因而，在程序又重新开始发包时，需要重新设定
+\mintinline{c}{epoch_start}的值，以便在计算拥塞窗口的大小时，仍能合理地遵循
+cubic函数的曲线。
 \begin{minted}[linenos]{c}
 static void bictcp_cwnd_event(struct sock *sk, enum tcp_ca_event event)
 {
@@ -582,4 +602,133 @@ static void bictcp_cwnd_event(struct sock *sk, enum tcp_ca_event event)
 }
 \end{minted}
 
+\subsubsection{收到ACK}
+收到ACK后，Cubic模块会重新计算链路的延迟情况。
+\begin{minted}[linenos]{c}
+/* Location: net/ipv4/tcp_cubic.c
+ *
+ * Track delayed acknowledgment ratio using sliding window
+ * ratio = (15*ratio + sample) / 16
+ */
+static void bictcp_acked(struct sock *sk, u32 cnt, s32 rtt_us)
+{
+        const struct tcp_sock *tp = tcp_sk(sk);
+        struct bictcp *ca = inet_csk_ca(sk);
+        u32 delay;
+
+        /* Some calls are for duplicates without timetamps */
+        if (rtt_us < 0)
+                return;
+
+        /* Discard delay samples right after fast recovery */
+        if (ca->epoch_start && (s32)(tcp_time_stamp - ca->epoch_start) < HZ)
+                return;
+
+        delay = (rtt_us << 3) / USEC_PER_MSEC;
+        if (delay == 0)
+                delay = 1;
+
+        /* 当第一次调用或者链路延迟增大时，重设delay_min的值。 */
+        if (ca->delay_min == 0 || ca->delay_min > delay)
+                ca->delay_min = delay;
+
+        /* 当cwnd的大小大于阈值后，会触发hystart更新机制 */
+        if (hystart && tcp_in_slow_start(tp) &&
+            tp->snd_cwnd >= hystart_low_window)
+                hystart_update(sk, delay);
+}
+\end{minted}
+
 \subsubsection{hystart}
+在长期的实践中，人们发现慢启动存在这样一个问题：如果慢启动时窗口变得很大（在大带宽网络中），
+那么如果慢启动的过程中发生了丢包，有可能一次丢掉大量的包（因为每次窗口都会加倍）。
+HyStart(Hybrid Slow Start)是一种优化过的慢启动算法，可以避免传统慢启动过程中的突发性丢包，
+从而提升系统的吞吐量并降低系统负载。
+
+在HyStart算法中，慢启动过程仍然是每次将拥塞窗口加倍。但是，它会使用ACK空间和往返延迟作为
+启发信息，来寻找一个安全的退出点(Safe Exit Points)。退出点即结束慢启动并进入拥塞避免的点。
+如果在慢启动的过程中发生丢包，那么HyStart算法的表现和传统的慢启动协议是一致的。
+
+初始化HyStart算法时，会记录当前的时间，上一次的rtt值，并重新统计当前的rtt值。
+\begin{minted}[linenos]{c}
+/* Location: net/ipv4/tcp_cubic.c */
+static inline void bictcp_hystart_reset(struct sock *sk)
+{
+        struct tcp_sock *tp = tcp_sk(sk);
+        struct bictcp *ca = inet_csk_ca(sk);
+
+        ca->round_start = ca->last_ack = bictcp_clock();
+        ca->end_seq = tp->snd_nxt;
+        ca->curr_rtt = 0;
+        ca->sample_cnt = 0;
+}
+\end{minted}
+
+每次接到ACK以后，如果tcp仍处于慢启动状态，且拥塞窗口大小已经大于了一定的值，那么就会
+通过调用\mintinline{c}{hystart_update()}进入到hystart算法。
+\begin{minted}[linenos]{c}
+/* Location: net/ipv4/tcp_cubic.c */
+static void hystart_update(struct sock *sk, u32 delay)
+{
+        struct tcp_sock *tp = tcp_sk(sk);
+        struct bictcp *ca = inet_csk_ca(sk);
+
+        /* 如果已经找到了退出点，那么直接返回 */
+        if (ca->found & hystart_detect)
+                return;
+
+        if (hystart_detect & HYSTART_ACK_TRAIN) {
+                u32 now = bictcp_clock();
+
+                /* first detection parameter - ack-train detection */
+                if ((s32)(now - ca->last_ack) <= hystart_ack_delta) {
+                        ca->last_ack = now;
+                        if ((s32)(now - ca->round_start) > ca->delay_min >> 4) {
+                                ca->found |= HYSTART_ACK_TRAIN;
+                                NET_INC_STATS_BH(sock_net(sk),
+                                                 LINUX_MIB_TCPHYSTARTTRAINDETECT);
+                                NET_ADD_STATS_BH(sock_net(sk),
+                                                 LINUX_MIB_TCPHYSTARTTRAINCWND,
+                                                 tp->snd_cwnd);
+                                tp->snd_ssthresh = tp->snd_cwnd;
+                        }
+                }
+        }
+\end{minted}
+上面是第一个判别条件，如果收到两次相隔不远的ACK之间的时间大于了rtt时间的一半，那么，
+就说明窗口的大小差不多到了网络容量的上限了。这里之所以会右移4，是因为
+\mintinline{c}{delay_min}是最小延迟左移3后的结果。rtt的一半相当于单程的时延。
+连续收到的两次ACK可以用于估计带宽大小。这里需要特别解释一下：由于在慢启动阶段，会一次性
+发送大量的包，所以，可以假设在网络中，数据是连续发送的。而收到的两个连续的包之间的时间间隔
+就是窗口大小除以网络带宽的商。作为发送端，我们只能获得两次ACK之间的时间差，因此用这个时间来
+大致估计带宽。拥塞窗口的合理大小为$C=B\times D_{min}+S$，这里$C$是窗口大小，$B$是带宽，
+$D_{min}$是最小的单程时延，$S$是缓存大小。由于带宽是基本恒定的，因此，只要两次ACK之间的时间
+接近与$D_{min}$就可以认为该窗口的大小是基本合理的，已经充分的利用了网络。
+
+第二个启发条件是如果当前往返时延的增长已经超过了一定的限度，那么，说明网络的带宽
+已经要被占满了。因此，也需要退出慢启动状态。
+\begin{minted}[linenos]{c}
+        if (hystart_detect & HYSTART_DELAY) {
+                /* obtain the minimum delay of more than sampling packets */
+                if (ca->sample_cnt < HYSTART_MIN_SAMPLES) {
+                        if (ca->curr_rtt == 0 || ca->curr_rtt > delay)
+                                ca->curr_rtt = delay;
+
+                        ca->sample_cnt++;
+                } else {
+                        if (ca->curr_rtt > ca->delay_min +
+                            HYSTART_DELAY_THRESH(ca->delay_min >> 3)) {
+                                ca->found |= HYSTART_DELAY;
+                                NET_INC_STATS_BH(sock_net(sk),
+                                                 LINUX_MIB_TCPHYSTARTDELAYDETECT);
+                                NET_ADD_STATS_BH(sock_net(sk),
+                                                 LINUX_MIB_TCPHYSTARTDELAYCWND,
+                                                 tp->snd_cwnd);
+                                tp->snd_ssthresh = tp->snd_cwnd;
+                        }
+                }
+        }
+}
+\end{minted}
+退出慢启动状态的方法很简单，都是直接将当前的\mintinline{c}{snd_ssthresh}的大小设定为和
+当前拥塞窗口一样的大小。这样，TCP自然就会转入拥塞避免状态。
