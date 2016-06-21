@@ -439,3 +439,11 @@ htons(__u16 x)
 			上面函数的命名规则是末尾的l代表32位，s代表16位。n代表network，h代表host。
 根据命名规则，不难知道函数的用途。比如htons就是从本地的格式转换的网络传输用的格式，
 转换的是16位整数。
+		\subsection{缓存 Cache}
+			\subsubsection{\mintinline{C}{__read_mostly}}
+				我们经常需要被读取的数据定义为\mintinline{C}{__read_mostly}类型，
+				这样Linux内核被加载时，该数据将自动被存放到Cache中，以提高整个系统的执行效率。
+				另一方面，如果所在的平台没有Cache，或者虽然有Cache，但并不提供存放数据的接口(也就是并不允许人工放置数据在Cache中)，
+				这样定义为\mintinline{C}{__read_mostly}类型的数据将不能存放在Linux内核中，甚至也不能够被加载到系统内存去执行，将造成Linux 内核启动失败。
+				???需要再仔细去思考。
+				

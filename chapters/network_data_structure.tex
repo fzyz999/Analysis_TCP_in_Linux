@@ -1349,7 +1349,9 @@ struct tcp_sock {
     u32 write_seq;  /* Tail(+1) of data held in tcp send buffer */
     u32 notsent_lowat;  /* TCP_NOTSENT_LOWAT */
     u32 pushed_seq; /* Last pushed seq, required to talk to windows */
-    u32 lost_out;   /* Lost packets         */
+    u32 lost_out;   /* Lost packets         
+						丢失的数据报
+					*/
     u32 sacked_out; /* SACK'd packets           
 						启用ACK时，通过SACK的TCP选项标识已接收到的段的数量。
 						不启用SACK时，标识接收到的重复确认的次数，该值在接收到确认新数据段时被清除。
