@@ -642,11 +642,26 @@ kmemcheck_bitfield_end(flags1);
 \end{minted}
 \mintinline{c}{users}是引用计数，所以是个原子的。\mintinline{c}{truesize}是
 数据报的真实大小。
+
+\subsection{msghdr}
+\begin{minted}[linenos]{c}
+/* Location: include/linux/socket.h */
+struct msghdr {
+        void            *msg_name;      /* 指向socket地址结构体的指针 */
+        int             msg_namelen;    /* socket地址结构体的大小 */
+        struct iov_iter msg_iter;       /* 数据 */
+        void            *msg_control;   /* 辅助数据 */
+        __kernel_size_t msg_controllen; /* 辅助数据缓冲区大小 */
+        unsigned int    msg_flags;      /* 收到的消息所带的标记 */
+        struct kiocb    *msg_iocb;      /* 指向iocb的指针（用于异步请求） */
+};
+\end{minted}
+
 %----------------------------------------------------------------------------------------
 %                   Structure about Inet
 %----------------------------------------------------------------------------------------
     \section{inet层相关数据结构}
-		\subsection{\mintinline{C}{ip_options}}
+        \subsection{\mintinline{C}{ip_options}}
 
 \begin{minted}[linenos]{C}
 
@@ -655,32 +670,32 @@ kmemcheck_bitfield_end(flags1);
 Location:
 
 Description:
-	@faddr - Saved first hop address
-	@nexthop - Saved nexthop address in LSRR and SSRR
-	@is_strictroute - Strict source route
-	@srr_is_hit - Packet destination addr was our one
-	@is_changed - IP checksum more not valid
-	@rr_needaddr - Need to record addr of outgoing dev
-	@ts_needtime - Need to record timestamp
-	@ts_needaddr - Need to record addr of outgoing dev
+    @faddr - Saved first hop address
+    @nexthop - Saved nexthop address in LSRR and SSRR
+    @is_strictroute - Strict source route
+    @srr_is_hit - Packet destination addr was our one
+    @is_changed - IP checksum more not valid
+    @rr_needaddr - Need to record addr of outgoing dev
+    @ts_needtime - Need to record timestamp
+    @ts_needaddr - Need to record addr of outgoing dev
 */
 struct ip_options {
-	__be32		faddr;
-	__be32		nexthop;
-	unsigned char	optlen;
-	unsigned char	srr;
-	unsigned char	rr;
-	unsigned char	ts;
-	unsigned char	is_strictroute:1,
-			srr_is_hit:1,
-			is_changed:1,
-			rr_needaddr:1,
-			ts_needtime:1,
-			ts_needaddr:1;
-	unsigned char	router_alert;
-	unsigned char	cipso;
-	unsigned char	__pad2;
-	unsigned char	__data[0];
+    __be32      faddr;
+    __be32      nexthop;
+    unsigned char   optlen;
+    unsigned char   srr;
+    unsigned char   rr;
+    unsigned char   ts;
+    unsigned char   is_strictroute:1,
+            srr_is_hit:1,
+            is_changed:1,
+            rr_needaddr:1,
+            ts_needtime:1,
+            ts_needaddr:1;
+    unsigned char   router_alert;
+    unsigned char   cipso;
+    unsigned char   __pad2;
+    unsigned char   __data[0];
 };
 \end{minted}    
         \subsection{\mintinline{C}{inet_request_sock}}
@@ -1077,11 +1092,11 @@ struct dst_entry {
 
 \begin{minted}[linenos]{C}
 struct rtable {
-	/*存储缓存路由项中独立于协议的信息*/
-    struct dst_entry    dst;		
+    /*存储缓存路由项中独立于协议的信息*/
+    struct dst_entry    dst;        
 
     int         rt_genid;
-	/*表示路由表项的一些特性和标志*/
+    /*表示路由表项的一些特性和标志*/
     unsigned int        rt_flags;
     __u16           rt_type;
     __u8            rt_is_input;
@@ -1202,11 +1217,11 @@ struct tcp_options_received {
                               */
         dsack : 1,            /* D-SACK is scheduled                         */
         wscale_ok : 1,       /* Wscale seen on SYN packet                   
-								标志接收方是否支持窗口扩大因子，只出现在SYN段中。	
-							 */
-        sack_ok : 4,          	/* SACK seen on SYN packet                     
-									标记是否对方提供SACK服务
-								*/
+                                标志接收方是否支持窗口扩大因子，只出现在SYN段中。   
+                             */
+        sack_ok : 4,            /* SACK seen on SYN packet                     
+                                    标记是否对方提供SACK服务
+                                */
         snd_wscale : 4,       /* Window scaling received from sender         */
         rcv_wscale : 4;       /* Window scaling to send to receiver          */
     u8  num_sacks;            /* Number of SACK blocks                       */
@@ -1284,8 +1299,8 @@ struct tcp_sock {
     u32 mss_cache;  /* Cached effective mss, not including SACKS */
 
     u32 window_clamp;   /* Maximal window to advertise     
-							滑动窗口最大值					   
-						 */
+                            滑动窗口最大值                     
+                         */
     u32 rcv_ssthresh;   /* Current window clamp         */
 
     /* Information of the most recently (s)acked skb */
@@ -1295,8 +1310,8 @@ struct tcp_sock {
         u8 reord;    /* reordering detected */
     } rack;
     u16 advmss;     /* Advertised MSS           
-						本端能接收的MSS上限，在建立时用来通告对方。					
-					*/
+                        本端能接收的MSS上限，在建立时用来通告对方。                 
+                    */
     u8  unused;
     u8  nonagle     : 4,/* Disable Nagle algorithm?             */
         thin_lto    : 1,/* Use linear timeouts for thin streams */
@@ -1324,12 +1339,12 @@ struct tcp_sock {
     } rtt_min[3];
 
     u32 packets_out;    /* Packets which are "in flight"    
-							发送方发送出去但是还未得到确认的TCP段的数目
-							packets_out=SND.NXT-SND.UNA				
-						*/
+                            发送方发送出去但是还未得到确认的TCP段的数目
+                            packets_out=SND.NXT-SND.UNA             
+                        */
     u32 retrans_out;    /* Retransmitted packets out       
-							重传并且还未得到确认的TCP段的数目
-						 */
+                            重传并且还未得到确认的TCP段的数目
+                         */
     u32 max_packets_out;  /* max packets_out in last window */
     u32 max_packets_seq;  /* right edge of max_packets_out flight */
 
@@ -1350,19 +1365,19 @@ struct tcp_sock {
     u32 snd_ssthresh;   /* Slow start size threshold        */
     u32 snd_cwnd;   /* Sending congestion window        */
     u32 snd_cwnd_cnt;   /* Linear increase counter      
-							自从上次调整拥塞窗口到目前为止接收到的总ACK段数。
-							如果该字段为零，则说明已经调整了拥塞窗口，且到目前
-							为止还没有接收到ACK段。调整拥塞窗口之后，每接收到
-							一个ACK，ACK段就会使snd_cwnd_cnt加1。
-						*/
+                            自从上次调整拥塞窗口到目前为止接收到的总ACK段数。
+                            如果该字段为零，则说明已经调整了拥塞窗口，且到目前
+                            为止还没有接收到ACK段。调整拥塞窗口之后，每接收到
+                            一个ACK，ACK段就会使snd_cwnd_cnt加1。
+                        */
     u32 snd_cwnd_clamp; /* Do not allow snd_cwnd to grow above this */
     u32 snd_cwnd_used;
-    u32 snd_cwnd_stamp;	/*记录最近一次检验拥塞窗口的时间
-							在拥塞期间，接收到ACK后会进行
-							拥塞窗口的检验。而在非拥塞期间，为了防止由于应用
-							程序限制而造成拥塞窗口失效，因此在成功发送段后，
-							如果有必要也会检验拥塞窗口。
-						*/
+    u32 snd_cwnd_stamp; /*记录最近一次检验拥塞窗口的时间
+                            在拥塞期间，接收到ACK后会进行
+                            拥塞窗口的检验。而在非拥塞期间，为了防止由于应用
+                            程序限制而造成拥塞窗口失效，因此在成功发送段后，
+                            如果有必要也会检验拥塞窗口。
+                        */
     u32 prior_cwnd; /* Congestion window at start of Recovery. */
     u32 prr_delivered;  /* Number of newly delivered packets to
                  * receiver in Recovery. */
@@ -1373,19 +1388,19 @@ struct tcp_sock {
     u32 notsent_lowat;  /* TCP_NOTSENT_LOWAT */
     u32 pushed_seq; /* Last pushed seq, required to talk to windows */
     u32 lost_out;   /* Lost packets         
-						丢失的数据报
-					*/
+                        丢失的数据报
+                    */
     u32 sacked_out; /* SACK'd packets           
-						启用ACK时，通过SACK的TCP选项标识已接收到的段的数量。
-						不启用SACK时，标识接收到的重复确认的次数，该值在接收到确认新数据段时被清除。
-					*/
+                        启用ACK时，通过SACK的TCP选项标识已接收到的段的数量。
+                        不启用SACK时，标识接收到的重复确认的次数，该值在接收到确认新数据段时被清除。
+                    */
     u32 fackets_out;    /* FACK'd packets           
-							记录SND.UNA与(SACK选项中目前接收方收到的段中最高序号段)之间的段数。FACK算法
-							用SACK选项来计算丢失在网络中上的段数
-							lost_out=fackets_out-sacked_out
-							left_out=fackets_out
-							找时间画一张图.???? remain ro do.
-						*/
+                            记录SND.UNA与(SACK选项中目前接收方收到的段中最高序号段)之间的段数。FACK算法
+                            用SACK选项来计算丢失在网络中上的段数
+                            lost_out=fackets_out-sacked_out
+                            left_out=fackets_out
+                            找时间画一张图.???? remain ro do.
+                        */
 
     /* from STCP, retrans queue hinting */
     struct sk_buff* lost_skb_hint;
@@ -1413,23 +1428,23 @@ struct tcp_sock {
 
     u32 prior_ssthresh; /* ssthresh saved at recovery start */
     u32 high_seq;   /* snd_nxt at onset of congestion   
-						开始拥塞的时候下一个要发送的序号字节					
-					*/
+                        开始拥塞的时候下一个要发送的序号字节                    
+                    */
 
     u32 retrans_stamp;  /* Timestamp of the last retransmit,
                  * also used in SYN-SENT to remember stamp of
                  * the first SYN. */
     u32 undo_marker;    /* snd_una upon a new recovery episode. 
-							在使用F-RTO算法进行发送超时处理，或进入Recovery进行重传，
-							或进入Loss开始慢启动时，记录当时SND.UNA,标记重传起始点。
-							它是检测是否可以进行拥塞控制撤销的条件之一，一般在完成
-							拥塞撤销操作或进入拥塞控制Loss状态后会清零。
-						*/
+                            在使用F-RTO算法进行发送超时处理，或进入Recovery进行重传，
+                            或进入Loss开始慢启动时，记录当时SND.UNA,标记重传起始点。
+                            它是检测是否可以进行拥塞控制撤销的条件之一，一般在完成
+                            拥塞撤销操作或进入拥塞控制Loss状态后会清零。
+                        */
     int undo_retrans;   /* number of undoable retransmissions. 
-							在恢复拥塞控制之前可进行撤销的重传段数。在进入FTRO算法或
-							拥塞状态Loss时，清零，在重传时计数，是检测是否可以进行拥塞
-							撤销的条件之一。
-						*/
+                            在恢复拥塞控制之前可进行撤销的重传段数。在进入FTRO算法或
+                            拥塞状态Loss时，清零，在重传时计数，是检测是否可以进行拥塞
+                            撤销的条件之一。
+                        */
     u32 total_retrans;  /* Total retransmits for entire connection */
 
     u32 urg_seq;    /* Seq of received urgent pointer */
