@@ -8,8 +8,18 @@
         \subsection{sock\_common}
 
 \begin{minted}[linenos]{C}
-/**
- *  struct sock_common - minimal network layer representation of sockets
+/*
+Location:
+
+	include/net/sock.h
+
+Description:
+
+	minimal network layer representation of sockets
+	This is the minimal network layer representation of sockets, the header
+	for struct sock and struct inet_timewait_sock.
+Member:
+
  *  @skc_daddr: Foreign IPv4 addr
  *  @skc_rcv_saddr: Bound local IPv4 addr
  *  @skc_hash: hash value used with various protocol lookup tables
@@ -33,10 +43,7 @@
  *      %SO_OOBINLINE settings, %SO_TIMESTAMPING settings
  *  @skc_incoming_cpu: record/match cpu processing incoming packets
  *  @skc_refcnt: reference count
- *
- *  This is the minimal network layer representation of sockets, the header
- *  for struct sock and struct inet_timewait_sock.
- */
+*/
 struct sock_common {
     /* skc_daddr and skc_rcv_saddr must be grouped on a 8 bytes aligned
      * address on 64bit arches : cf INET_MATCH()
@@ -122,10 +129,20 @@ struct sock_common {
 };
 \end{minted}
         \subsection{sock}
-            sock结构是比较通用的网络层描述块，构成传输控制块的基础，与具体的协议族无关。它描述了各协议族的公共信息，因此不能直接作为传输层控制块来使用。不同协议族的传输层在使用该结构的时候都会对其进行拓展，来适合各自的传输特性。例如，\mintinline{C}{inet_sock}结构由sock结构及其它特性组成，构成了IPV4协议族传输控制块的基础。结构如下：
-
 \begin{minted}[linenos]{C}
-/**
+/*
+Location:
+
+	include/net/sock.h
+
+Description:
+
+	sock结构是比较通用的网络层描述块，构成传输控制块的基础，与具体的协议族无关。
+	它描述了各协议族的公共信息，因此不能直接作为传输层控制块来使用。不同协议族的
+	传输层在使用该结构的时候都会对其进行拓展，来适合各自的传输特性。例如，inet_sock
+	结构由sock结构及其它特性组成，构成了IPV4协议族传输控制块的基础。
+
+Member:
   * struct sock - network layer representation of sockets
   * @__sk_common: shared layout with inet_timewait_sock
   * @sk_shutdown: SEND_SHUTDOWN 或者 RCV_SHUTDOWN的掩码
@@ -342,11 +359,17 @@ struct sock {
 \end{minted}
     \subsection{\mintinline{C}{request_sock}}
 
-        该结构位于\mintinline{C}{/include/net/request_sock.h}中。该结构用于表示一个简单的TCP连接请求。
-
 \begin{minted}[linenos]{C}
-/* struct request_sock - mini sock to represent a connection request
- */
+/* 
+Location:
+
+	/include/net/request_sock.h
+
+Description:
+	
+	struct request_sock - mini sock to represent a connection request
+	该结构用于表示一个简单的TCP连接请求。
+*/
 struct request_sock {
     struct sock_common      __req_common;
 #define rsk_refcnt          __req_common.skc_refcnt
