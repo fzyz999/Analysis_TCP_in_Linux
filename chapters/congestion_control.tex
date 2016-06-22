@@ -548,16 +548,18 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 				return;
 			/* Change state if cwnd is undone or retransmits are lost */
 		default:
+			//判断是否开启了SACK，没启用返回1 
 			if (tcp_is_reno(tp)) {
 				if (flag & FLAG_SND_UNA_ADVANCED)
-					tcp_reset_reno_sack(tp);
+					tcp_reset_reno_sack(tp);	//重置sacked
 				if (is_dupack)
-					tcp_add_reno_sack(sk);
+					tcp_add_reno_sack(sk);		//记录接收到的sack
 			}
 
 			if (icsk->icsk_ca_state <= TCP_CA_Disorder)
 				tcp_try_undo_dsack(sk);
-
+			//确定能够离开Disorder状态，而进入Recovery状态。	
+			//如果不进入Recovery状态，判断可否进入OPen状态。
 			if (!tcp_time_to_recover(sk, flag)) {
 				tcp_try_to_open(sk, flag, prior_unsacked);
 				return;
@@ -578,10 +580,12 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 			tcp_enter_recovery(sk, (flag & FLAG_ECE));
 			fast_rexmit = 1;
 	}
-
+	//如果接收到重复的ACK或者重传队首的段超时，
+	//则要为确定丢失的段更新记分牌
 	if (do_lost)
 		tcp_update_scoreboard(sk, fast_rexmit);
 	tcp_cwnd_reduction(sk, prior_unsacked, fast_rexmit, flag);
+	//重传重传队列中那些标记为LOST的段，同时重置RTO定时器。	
 	tcp_xmit_retransmit_queue(sk);
 }
 
