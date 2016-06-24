@@ -2,12 +2,30 @@
 
 \minitoc
 
-\section{SKB}
+	\section{BSD Socket层}
+		\subsubsection{\mintinline{C}{msg_flag}}
+\begin{enumerate}
+\item[MSG\_OOB]			接收或发送带外数据。
+\item[MSG\_PEEK]		查看数据，并不从系统缓存区移走数据。
+\item[MSG\_DONTROUTE]	无需路由查找，目的地位于本地子网。
+\item[MSG\_CTRUNC]		指明由于缓存区空间不足，一些控制数据已被丢弃。
+\item[MSG\_PROBE]		使用这个标识，实际上并不会进行真正的的数据传递，
+						而是进行路径MTU的探测。
+\item[MSG\_TRUNC]		只返回包的真实长度，并截短(丢弃)返回长度的数据。
+\item[MSG\_DONTWAIT]	无阻塞接收或发送。如果接收缓存中由数据，则接收数据并立刻返回。
+						没有数据也立刻返回，而不进行任何等待。
+\item[MSG\_WAITALL]		必须一直等待，直到接收到的数据填满用户空间的缓存区。
+\item[MSG\_CONFIRM]		标识网关有效。只用于SOCK\_DGRAM和SOCK\_RAM类型的套接口。
+\item[MSG\_ERRQUEUE]	指示除了来自套接字错误队列的错误外，不接受其他数据。
+\item[MSG\_NOSIGNAL]	当另一端终止连接时，请求在基于流的错误套接字上不要发送SIGPIPE信号。
+\item[MSG\_MORE]		后续还有数据待发送。
+\item[MSG\_CMSG\_COMPAT]64位兼容32位处理方式。
+\end{enumerate}
 
-\section{Inet}
-    \subsection{\mintinline{C}{inet_hash_connect && __inet_hash_connect}}
+	\section{Inet}
+    	\subsection{\mintinline{C}{inet_hash_connect && __inet_hash_connect}}
 
-        \subsubsection{\mintinline{C}{inet_hash_connect}}
+ 	       \subsubsection{\mintinline{C}{inet_hash_connect}}
 \begin{minted}[linenos]{C}
 /*
  * Bind a port for a connect operation and hash it.

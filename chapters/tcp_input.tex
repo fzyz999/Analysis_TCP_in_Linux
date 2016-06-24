@@ -1,6 +1,10 @@
 \chapter{TCP输入}
 \label{chapter:tcp_input}
 	\section{Linux内核网络数据接收流程概览}
+        \begin{figure}[htb]        
+            \centering
+            \includegraphics[width=\textwidth]  {images/Linux Network Receive.pdf}
+        \end{figure}    
 		正如上图所示，Linux内核的网络数据接收时分为以上5个层次的。
 		每个层次都有自己功能，相互依赖，同时又独立成块。
 		下面，我们来依次介绍这些层次。
@@ -23,14 +27,30 @@
 
 		而在本文的分析中，我们主要关注的时TCP层的实现，故而我们主要分析INET Socket层。
 	\section{\mintinline{C}{tcp_recvmsg}}
+		我们一步一步对该函数进行分析。
 \begin{minted}[linenos]{C}
 /*
+Location:
+
+	net/ipv4/tcp.c
+
+Function:
+
  *	This routine copies from a sock struct into the user buffer.
  *
  *	Technical note: in 2.3 we work on _locked_ socket, so that
  *	tricks with *seq access order and skb->users are not required.
  *	Probably, code can be easily improved even more.
- */
+
+Parameter:
+
+	sk:传输控制块。
+	msg:
+	len:
+	nonblock:
+	flags:读取数据的标志。
+	addrlen:
+*/
 
 int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
 		int flags, int *addr_len)
@@ -46,41 +66,71 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
 	struct task_struct *user_recv = NULL;
 	struct sk_buff *skb, *last;
 	u32 urg_hole = 0;
-
+	//如果只是为了接收来自套接字错误队列的错误，那就直接执行如下函数。
 	if (unlikely(flags & MSG_ERRQUEUE))
 		return inet_recv_error(sk, msg, len, addr_len);
-
+	//不是特别理解，，????
 	if (sk_can_busy_loop(sk) && skb_queue_empty(&sk->sk_receive_queue) &&
 	    (sk->sk_state == TCP_ESTABLISHED))
 		sk_busy_loop(sk, nonblock);
-
+\end{minted}
+上述主要处理一些比较异常的情况，接下来就开始进行正常的处理了。
+\begin{minted}[linenos]{C}
+	/*
+		在用户进程进行读取数据之前，必须对传输层进行加锁，这主要时为了在读的过程中，软中断
+		操作传输层，从而造成数据的不同步甚至更为严重的不可预料的结果。
+	*/
 	lock_sock(sk);
-
+	//初始化错误码，Transport endpoint is not connected
 	err = -ENOTCONN;
+	/*
+		如果此时只是处于LISTEN状态，表明尚未建立连接，
+		此时不允许用户读取数据,只能返回。
+	*/
 	if (sk->sk_state == TCP_LISTEN)
 		goto out;
-
+	/*
+		获取阻塞读取的超时时间，如果进行非阻塞读取，则超时时间为0。
+	*/
 	timeo = sock_rcvtimeo(sk, nonblock);
 
-	/* Urgent data needs to be handled specially. */
+	/* Urgent data needs to be handled specially. 
+		如果是要读取带外数据，则需要跳转到recv_urg进行处理。
+	*/
 	if (flags & MSG_OOB)
 		goto recv_urg;
-
+\end{minted}
+	继续处理。
+\begin{minted}[linenos]{C}
+	//被修复了？？？啥意思》？》
 	if (unlikely(tp->repair)) {
+		//	Operation not permitted
 		err = -EPERM;
+		//如果只是查看数据的话，就直接跳转到out处理
 		if (!(flags & MSG_PEEK))
 			goto out;
-
+		//????
 		if (tp->repair_queue == TCP_SEND_QUEUE)
 			goto recv_sndq;
-
-		err = -EINVAL;
+		//Invalid argument
+		err = -EINVAL
 		if (tp->repair_queue == TCP_NO_QUEUE)
 			goto out;
 
 		/* 'common' recv queue MSG_PEEK-ing */
 	}
-
+\end{minted}
+	
+	接下来进行数据复制。在把数据从接收缓存复制到用户空间的过程中，
+	会更新当前已复制为止，以及段序号。如果接收数据，则会更新copied\_seq,
+	但是如果只是查看数据而并不是从系统缓冲区移走数据，那么不能更新copied\_seq。
+	因此，数据复制到用户空间的过程中，区别接收数据还是查看数据是根据是否更新copied\_seq，
+	所以这里时根据接收数据还是查看来获取要更新标记的地址，而后面的复制操作就完全不关心时接收
+	还是查看。
+	
+	最后一行调用相关函数根据是否设置了MSG\_WAITALL来确定本次调用需要接收数据的长度。如果设置
+	了MSG\_WAITALL标志，则读取数据长度为用户调用时输入的参数len。
+\begin{minted}[linenos]{C}
 	seq = &tp->copied_seq;
 	if (flags & MSG_PEEK) {
 		peek_seq = tp->copied_seq;
@@ -88,7 +138,12 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
 	}
 
 	target = sock_rcvlowat(sk, flags & MSG_WAITALL, len);
+\end{minted}
 
+	接下来通过urg\_data和urg\_seq来检测当前是否读取到带外数据。如果在
+	读带外数据，则终止本次正常数据的读取。否则，如果用户进程有信号待处理，
+	则也终止本次的读取。
+\begin{minted}[linenos]{C}
 	do {
 		u32 offset;
 
@@ -101,39 +156,78 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
 				break;
 			}
 		}
+\end{minted}
 
+	接下来首先获取一个缓存区。
+\begin{minted}[linenos]{C}
 		/* Next get a buffer. */
-
+		//接下来获取下一个要读取的的段。
 		last = skb_peek_tail(&sk->sk_receive_queue);
 		skb_queue_walk(&sk->sk_receive_queue, skb) {
 			last = skb;
 			/* Now that we have two receive queues this
 			 * shouldn't happen.
+				如果接收队列中的段序号比较大，则说明也获取不到下一个待获取的段，
+				这样也只能接着处理prequeue或后备队列，实际上这种情况不应该发生。
 			 */
 			if (WARN(before(*seq, TCP_SKB_CB(skb)->seq),
 				 "recvmsg bug: copied %X seq %X rcvnxt %X fl %X\n",
 				 *seq, TCP_SKB_CB(skb)->seq, tp->rcv_nxt,
 				 flags))
 				break;
-
-			offset = *seq - TCP_SKB_CB(skb)->seq;
+			/*
+				到此，我们已经获取了下一个要读取的数据段，计算该段开始读取数据的偏移位置，
+				当然，该偏移值必须在该段的数据长度范围内才有效。
+			*/
+			offset = *seq - TCP_SKB_CB(skb)->seq;	
+			/*
+				由于SYN标志占用了一个序号，因此如果存在SYN标志，则需要调整
+				偏移。由于偏移offset为无符号整型，因此，不会出现负数的情况。
+			*/
 			if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_SYN)
 				offset--;
+			/*
+				只有当偏移在该段的数据长度范围内，才说明待读的段才是有效的，因此，接下来
+				跳转到found_ok_skb标签处读取数据。
+			*/
 			if (offset < skb->len)
 				goto found_ok_skb;
+			/*
+				如果接收到的段中有FIN标识，则跳转到found_fin_ok处处理。
+			*/
 			if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN)
 				goto found_fin_ok;
 			WARN(!(flags & MSG_PEEK),
 			     "recvmsg bug 2: copied %X seq %X rcvnxt %X fl %X\n",
 			     *seq, TCP_SKB_CB(skb)->seq, tp->rcv_nxt, flags);
 		}
+\end{minted}
 
+	只有在读取完数据后，才能在后备队列不为空的情况下区处理接收到后备队列中的TCP段。
+	否则终止本次读取。
+
+	由于是因为用户进程对传输控制块进行的锁定，将TCP段缓存到后备队列，故而，一旦用户进程释放传输控制块就应该立即处理后备队列。
+	处理后备队列直接在release\_sock中实现，以确保在任何时候解锁传输控制块时能立即处理后备队列。
+\begin{minted}[linenos]{C}
 		/* Well, if we have backlog, try to process it now yet. */
 
 		if (copied >= target && !sk->sk_backlog.tail)
 			break;
+\end{minted}
 
+	当接收队列中可以读取的段已经读完，在处理prequeue或后备队列之前，我们需要显检查是否会存在一些
+	异常的情况，如果存在这类情况，就需要结束这次读取，返回前当然还顺便检测后备队列是否存在数据，如果有
+	则还需要处理。	
+\begin{minted}[linenos]{C}
 		if (copied) {
+			/*
+				检测条件：
+				1.有错误发生
+				2.TCP处于CLOSE状态
+				3.shutdown状态
+				4.收到信号
+				5.只是查看数据
+			*/			
 			if (sk->sk_err ||
 			    sk->sk_state == TCP_CLOSE ||
 			    (sk->sk_shutdown & RCV_SHUTDOWN) ||
@@ -141,17 +235,21 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
 			    signal_pending(current))
 				break;
 		} else {
+			/*检测TCP会话是否即将终结*/
 			if (sock_flag(sk, SOCK_DONE))
 				break;
-
+			/*如果有错误，返回错误码*/
 			if (sk->sk_err) {
 				copied = sock_error(sk);
 				break;
 			}
-
+			/*如果是shutdown，返回*/
 			if (sk->sk_shutdown & RCV_SHUTDOWN)
 				break;
-
+			/*
+				如果TCP状态为CLOSE，而套接口不再终结状态，则进程可能
+				在读取一个从未建立连接的套接口，因此，返回相应的错误码。
+			*/
 			if (sk->sk_state == TCP_CLOSE) {
 				if (!sock_flag(sk, SOCK_DONE)) {
 					/* This occurs when user tries to read
@@ -162,30 +260,43 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
 				}
 				break;
 			}
-
+			/*
+				未读到数据，且是非阻塞读取，则返回错误码Try again。
+			*/
 			if (!timeo) {
 				copied = -EAGAIN;
 				break;
 			}
-
+			/*检测是否收到数据，并返回相应的错误码*/
 			if (signal_pending(current)) {
 				copied = sock_intr_errno(timeo);
 				break;
 			}
 		}
+\end{minted}
 
+	进一步处理。
+\begin{minted}[linenos]{C}
+		//检测是否有确认需要立即发送
 		tcp_cleanup_rbuf(sk, copied);
-
+		/*
+			在未启用慢速路径的情况下，都会到此检测是否
+			需要处理prepare队列。
+		*/		
 		if (!sysctl_tcp_low_latency && tp->ucopy.task == user_recv) {
-			/* Install new reader */
+			/* Install new reader 
+				如果此次是第一次检测处理prepare队列的话，则需要设置正在读取的
+				进程标识符、缓存地址信息，这样当读取进程进入睡眠后，ESTABLISHED
+				状态的接收处理就可能把数据复制到用户空间。			
+			*/
 			if (!user_recv && !(flags & (MSG_TRUNC | MSG_PEEK))) {
 				user_recv = current;
 				tp->ucopy.task = user_recv;
 				tp->ucopy.msg = msg;
 			}
-
+			//更新当前可以使用的用户缓存的大小。
 			tp->ucopy.len = len;
-
+			//进行报警信息处理。
 			WARN_ON(tp->copied_seq != tp->rcv_nxt &&
 				!(flags & (MSG_PEEK | MSG_TRUNC)));
 
@@ -215,12 +326,22 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
 			 * is not empty. It is more elegant, but eats cycles,
 			 * unfortunately.
 			 */
+			/*
+				如果prequeue队列不为空，则跳转到do\_orequeue标签处处理prequeue队列。			
+			*/
 			if (!skb_queue_empty(&tp->ucopy.prequeue))
 				goto do_prequeue;
 
 			/* __ Set realtime policy in scheduler __ */
 		}
+\end{minted}
+	
+	继续处理,如果读取完数据，则调用release\_sock来解锁传输控制块，主要用来处理后备队列，完成
+	后再调用lock\_sock锁定传输控制块。在调用release\_sock的时候，进程有可能会出现休眠。
 
+	如果数据尚未读取，且是阻塞读取，则进入睡眠等待接收数据。这种情况下，tcp\_v4\_do\_rcv处理TCP段时可能会把
+	数据直接复制到用户空间。
+\begin{minted}[linenos]{C}
 		if (copied >= target) {
 			/* Do not sleep, just process backlog. */
 			release_sock(sk);
@@ -228,7 +349,9 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
 		} else {
 			sk_wait_data(sk, &timeo, last);
 		}
+\end{minted}
 
+\begin{minted}[linenos]{C}
 		if (user_recv) {
 			int chunk;
 
