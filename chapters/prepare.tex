@@ -63,44 +63,6 @@ struct proto tcp_prot = {
 通过名字，我大致筛选出来了这些函数，初步判断这些函数与实验所关心的功能相关。
 对着这张``地图''，就可以顺藤摸瓜，找出些路径了。
 
-先根据参考书《Linux内核源码剖析------TCP/IP实现》中给出的流程图，
-找出所有和需求相关的部分。
-
-首先找三次握手相关的部分：从客户端的角度，发起连接需要调用\mintinline[linenos]{text}{tcp_v4_connect}，
-该函数会进一步调用\mintinline[linenos]{text}{tcp_connect}，在这个函数中，会调用\mintinline[linenos]{text}{tcp_send_syn_data}
-发送SYN报文，并设定超时计时器。第二次握手相关的接收代码在\mintinline[linenos]{text}{tcp_rcv_state_process}中，
-该函数实现了除\mintinline[linenos]{text}{ESTABLISHED}和\mintinline[linenos]{text}{TIME_WAIT}之外所有状态下的接收处理。
-\mintinline[linenos]{text}{tcp_send_ack}函数实现了发送ACK报文。从服务端的角度，则还需实现\mintinline[linenos]{text}{listen}调用和
-\mintinline[linenos]{text}{accept}调用。二者都是服务端建立连接所需要的部分。
-
-封包的封装发送部分，所对应的函数是\mintinline[linenos]{text}{tcp_sendmsg}，实现对数据的复制、切割和发送。
-TCP的重传接口为\mintinline[linenos]{text}{tcp_retransmit_skb}，这里尚有疑问，因为这个函数是负责处理重传的，
-而不是判断是否应当重传的。所以并不明确到底是否该重新实现这一部分。
-
-TCP封包的接收在\mintinline[linenos]{text}{tcp_rcv_established}函数中，根据目前有限的资料看，TCP的滑动窗口机制应该
-在这一部分，更细节的内容待确认。
-
-\begin{itemize}
-\item
-  tcp\_transmit\_skb
-\item
-  tcp\_rcv\_state\_process
-\item
-  tcp\_connect
-\item
-  tcp\_rcv\_synsent\_state\_process
-\item
-  tcp\_rcv\_established
-\item
-  tcp\_send\_ack
-\item
-  tcp\_sendmsg
-\item
-  tcp\_retransmit\_skb
-\item
-  tcp\_rcv\_established
-\end{itemize}
-
 \section{RFC}
 \label{sec:rfc}
 
@@ -385,11 +347,11 @@ RFC1337中列举了三种TWA现象带来的危险。
 
 而解决TWA问题的方法较为简单，直接在TIME-WAIT阶段忽略掉所有的RST段即可。
 在\ref{subsec:time_wait}中的代码中可以看到，Linux正是采用了这种方法来解决该问题。
-	\subsection{RFC2481——A Proposal to add Explicit Congestion Notification(ECN) to IP}
-	\label{subsec:rfc2481}
-	\subsection{RFC2525——Known TCP Implementation Problems}
-	\label{subsec:rfc2525}
-		
+    \subsection{RFC2481——A Proposal to add Explicit Congestion Notification(ECN) to IP}
+    \label{subsec:rfc2481}
+    \subsection{RFC2525——Known TCP Implementation Problems}
+    \label{subsec:rfc2525}
+        
 \subsection{RFC3168——The Addition of Explicit Congestion Notification (ECN) to IP}
 \label{subsec:rfc3168}
 该RFC为TCP/IP网络引入了一种新的用于处理网络拥塞问题的方法。在以往的TCP中，
@@ -451,7 +413,7 @@ ECE用于在三次握手中协商手否启用ECN功能。CWR用于让接收端�
 \subsection{RFC6937--Proportional Rate Reduction for TCP}
 \label{subsec:rfc6937}
 
-	
+    
 \subsection{RFC7413——TCP Fast Open(Draft)}
 \label{subsec:rfc7413}
 

@@ -36,14 +36,15 @@ int tcp_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
         }
 \end{minted}
 根据调用者传入的标志位，判断是否启用了快速开启(Fast Open)。关于Fast Open的讨论，详见
-\ref{subsec:rfc7413}。
+\ref{subsec:rfc7413}。如果启用了Fast Open，则会调用
+\mintinline{c}{tcp_sendmsg_fasopen}函数进行相关处理。
 
 \begin{minted}[linenos]{c}
         timeo = sock_sndtimeo(sk, flags & MSG_DONTWAIT);
 
-        /* Wait for a connection to finish. One exception is TCP Fast Open
-         * (passive side) where data is allowed to be sent before a connection
-         * is fully established.
+        /* 等待连接完成。由于TCP是面向连接的，如果还没有建立好连接的话，是无法
+         * 发送任何东西的。不过，这里有一种例外情况，如果是处于Fast Open的被动端的话，
+         * 是可以在三次连接的过程中带上数据的。
          */
         if (((1 << sk->sk_state) & ~(TCPF_ESTABLISHED | TCPF_CLOSE_WAIT)) &&
             !tcp_passive_fastopen(sk)) {
@@ -52,6 +53,9 @@ int tcp_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
                         goto do_error;
         }
 
+        /* TCP repair是Linux3.5引入的新补丁，它能够实现容器在不同的物理主机间迁移。
+         * 它能够在迁移之后，将TCP连接重新设置到之前的状态。
+         */
         if (unlikely(tp->repair)) {
                 if (tp->repair_queue == TCP_RECV_QUEUE) {
                         copied = tcp_send_rcvq(sk, msg, size);
@@ -68,9 +72,14 @@ int tcp_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
         /* This should be in poll */
         sk_clear_bit(SOCKWQ_ASYNC_NOSPACE, sk);
 
+        /* 获取MSS大小。size_goal是数据报到达网络设备时所允许的最大长度。
+         * 对于不支持分片的网卡，size_goal是MSS的大小。否则，是MSS的整倍数。
+         */
         mss_now = tcp_send_mss(sk, &size_goal, flags);
 
-        /* Ok commence sending. */
+        /* Ok commence sending. 
+         * copied是已经从用户数据块复制出来的字节数。
+         */
         copied = 0;
 
         err = -EPIPE;
@@ -79,10 +88,13 @@ int tcp_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
 
         sg = !!(sk->sk_route_caps & NETIF_F_SG);
 
+        /* 不断循环，将用户想要发送的东西全部发送出去。 */
         while (msg_data_left(msg)) {
+                /* copy代表本次需要从用户数据块中复制的数据量。 */
                 int copy = 0;
                 int max = size_goal;
 
+                /* 获得队尾的SKB，并判断SKB剩余的能携带的数据量。 */
                 skb = tcp_write_queue_tail(sk);
                 if (tcp_send_head(sk)) {
                         if (skb->ip_summed == CHECKSUM_NONE)
@@ -90,6 +102,7 @@ int tcp_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
                         copy = max - skb->len;
                 }
 
+                /* 如果没法携带足够的数据了，那么就重新分配一个SKB。 */
                 if (copy <= 0) {
 new_segment:
                         /* Allocate new segment. If the interface is SG,
@@ -111,6 +124,7 @@ new_segment:
                         if (sk->sk_route_caps & NETIF_F_ALL_CSUM)
                                 skb->ip_summed = CHECKSUM_PARTIAL;
 
+                        /* 将新的SKB放到队尾，并设定copy和max的值。 */
                         skb_entail(sk, skb);
                         copy = size_goal;
                         max = size_goal;
@@ -127,9 +141,9 @@ new_segment:
                 if (copy > msg_data_left(msg))
                         copy = msg_data_left(msg);
 
-                /* Where to copy to? */
+                /* 下面的部分在寻找哪里还有空间可以放数据 */
                 if (skb_availroom(skb) > 0) {
-                        /* We have some space in skb head. Superb! */
+                        /* 在SKB头部还有一些空间，重新计算copy的值，以使用该空间。 */
                         copy = min_t(int, copy, skb_availroom(skb));
                         err = skb_add_data_nocache(sk, skb, &msg->msg_iter, copy);
                         if (err)
@@ -142,9 +156,11 @@ new_segment:
                         if (!sk_page_frag_refill(sk, pfrag))
                                 goto wait_for_memory;
 
+                        /* 判断能否在最后一个分片加数据。 */
                         if (!skb_can_coalesce(skb, i, pfrag->page,
                                               pfrag->offset)) {
                                 if (i == sysctl_max_skb_frags || !sg) {
+                                        /* 无法设置分配，那么就重新分配一个SKB。 */
                                         tcp_mark_push(tp, skb);
                                         goto new_segment;
                                 }
@@ -156,6 +172,7 @@ new_segment:
                         if (!sk_wmem_schedule(sk, copy))
                                 goto wait_for_memory;
 
+                        /* 将用户数据块复制到SKB中。 */
                         err = skb_copy_to_page_nocache(sk, &msg->msg_iter, skb,
                                                        pfrag->page,
                                                        pfrag->offset,
@@ -163,7 +180,7 @@ new_segment:
                         if (err)
                                 goto do_error;
 
-                        /* Update the skb. */
+                        /* 更新SKB。 */
                         if (merge) {
                                 skb_frag_size_add(&skb_shinfo(skb)->frags[i - 1], copy);
                         } else {
@@ -177,6 +194,7 @@ new_segment:
                 if (!copied)
                         TCP_SKB_CB(skb)->tcp_flags &= ~TCPHDR_PSH;
 
+                /* 更新TCP的序号 */
                 tp->write_seq += copy;
                 TCP_SKB_CB(skb)->end_seq += copy;
                 tcp_skb_pcount_set(skb, 0);
@@ -190,7 +208,9 @@ new_segment:
                 if (skb->len < max || (flags & MSG_OOB) || unlikely(tp->repair))
                         continue;
 
+                /* 检查该数据是否必须立即发送。 */
                 if (forced_push(tp)) {
+                        /* 如果需要立即发送，则调用相关函数将队列里的数据都发送出去 */
                         tcp_mark_push(tp, skb);
                         __tcp_push_pending_frames(sk, mss_now, TCP_NAGLE_PUSH);
                 } else if (skb == tcp_send_head(sk))
@@ -199,7 +219,9 @@ new_segment:
 
 wait_for_sndbuf:
                 set_bit(SOCK_NOSPACE, &sk->sk_socket->flags);
+                /* 设置当前的状态为无空间状态，并等待内存空间。 */
 wait_for_memory:
+                /* 如果已经复制了一定的数据了，那么将数据先发出去。 */
                 if (copied)
                         tcp_push(sk, flags & ~MSG_MORE, mss_now,
                                  TCP_NAGLE_PUSH, size_goal);
@@ -210,15 +232,23 @@ wait_for_memory:
 
                 mss_now = tcp_send_mss(sk, &size_goal, flags);
         }
-
+\end{minted}
+之后，是一系列的错误处理部分。（事实上，正常退出也要经过这里的\mintinline{c}{out}和
+\mintinline{c}{out_nopush}阶段）
+\begin{minted}[linenos]{c}
 out:
+        /* 如果发生了超时或者要正常退出，且已经拷贝了数据，那么尝试将该数据发出 */
         if (copied)
                 tcp_push(sk, flags, mss_now, tp->nonagle, size_goal);
 out_nopush:
+        /* 将sk释放，并返回已经发出的数据量。 */
         release_sock(sk);
         return copied + copied_syn;
 
 do_fault:
+        /* 当拷贝数据发送异常是，会进入这个分支。如果当前的SKB是新分配的，
+         * 那么，将该SKB从发送队列中去除，并释放该SKB。
+         */
         if (!skb->len) {
                 tcp_unlink_write_queue(skb, sk);
                 /* It is the one place in all of TCP, except connection
@@ -229,9 +259,11 @@ do_fault:
         }
 
 do_error:
+        /* 如果已经拷贝了数据，那么，就将其发出。 */
         if (copied + copied_syn)
                 goto out;
 out_err:
+        /* 获取并返回错误码，释放锁。 */
         err = sk_stream_error(sk, flags, err);
         /* make sure we wake any epoll edge trigger waiter */
         if (unlikely(skb_queue_len(&sk->sk_write_queue) == 0 && err == -EAGAIN))
@@ -244,43 +276,7 @@ out_err:
 \section{tcp\_transmit\_skb}
 
 \begin{minted}[linenos]{c}
-/* 为SYN包计算TCP选项，这个函数中计算出来的还不是最终的格式。
- */
-static unsigned int tcp_syn_options(struct sock *sk, struct sk_buff *skb,
-                                struct tcp_out_options *opts,
-                                struct tcp_md5sig_key **md5);
-/* 为已经建立连接的套接字计算TCP选项，这个函数中计算出来的还不是最终的格式。
- */
-static unsigned int tcp_established_options(struct sock *sk, struct sk_buff *skb,
-                                        struct tcp_out_options *opts,
-                                        struct tcp_md5sig_key **md5);
-/* 在skb中为头部流出空间。
- */
-skb_push(skb, tcp_header_size);
-/* 判断skb是否为一个纯ACK。这里把实现也放出来了。可以看到，纯ACK的包最显著
- * 的特点是其长度。Linux里通过判断长度直接快速判断出skb是否为一个纯ACK。
- */
-static inline bool skb_is_tcp_pure_ack(const struct sk_buff *skb)
-{
-        return skb->truesize == 2;
-}
-/* 重置传输层的header的指针？
- */
-static inline void skb_reset_transport_header(struct sk_buff *skb)
-{
-        skb->transport_header = skb->data - skb->head;
-}
-/* 选择发送窗口的大小
- */
-tcp_select_window(sk);
-tcp_urg_mode(tp);
-before(tcb->seq, tp->snd_up);
-tcp_options_write((__be32 *)(th + 1), tp, &opts);
-tcp_event_ack_sent(sk, tcp_skb_pcount(skb));
-tcp_event_data_sent(tp, sk);
-queue_xmit();
-tcp_enter_cwr(sk);
-net_xmit_eval(err);
+
 \end{minted}
 
 \section{tcp\_select\_window(struct sk\_buff *skb)}
