@@ -240,13 +240,18 @@ leftmargin=13pt]{pcodeBox}
 \pagestyle{fancy}
 
 \input{chapters/prepare.tex}
+
 \input{chapters/network_data_structure.tex}
-\chapter{TCP建立连接过程}
+
+\input{chapters/tcp_input.tex}
+\input{chapters/tcp_output.tex}
+
+\chapter{TCP建立连接}
 \minitoc
     \input{chapters/client_connect.tex}
     \input{chapters/server_connect.tex}
 
-\chapter{TCP连接释放}
+\chapter{TCP释放连接}
 \minitoc
 \input{chapters/active_close.tex}
 \input{chapters/passive_close.tex}
@@ -256,7 +261,6 @@ leftmargin=13pt]{pcodeBox}
 \input{chapters/congestion_control.tex}
 \input{chapters/congestion_control_engine.tex}
 
-\input{chapters/tcp_output.tex}
 
 \input{chapters/non-core_tcp-related_code.tex}
 \input{chapters/appendix.tex}
