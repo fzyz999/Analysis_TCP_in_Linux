@@ -79,10 +79,160 @@ Description:
 #define PACKET_FANOUT_FLAG_ROLLOVER	0x1000
 #define PACKET_FANOUT_FLAG_DEFRAG	0x8000
 \end{minted}	
+		\subsection{Sock CheckSum}
+			\subsubsection{CheckSum相关标志位}
+\begin{minted}[linenos]{C}
+* A. Checksumming of received packets by device.
+ *
+ * CHECKSUM_NONE:
+ *
+ *   Device failed to checksum this packet e.g. due to lack of capabilities.
+ *   The packet contains full (though not verified) checksum in packet but
+ *   not in skb->csum. Thus, skb->csum is undefined in this case.
+ *
+ * CHECKSUM_UNNECESSARY:
+ *
+ *   The hardware you're dealing with doesn't calculate the full checksum
+ *   (as in CHECKSUM_COMPLETE), but it does parse headers and verify checksums
+ *   for specific protocols. For such packets it will set CHECKSUM_UNNECESSARY
+ *   if their checksums are okay. skb->csum is still undefined in this case
+ *   though. It is a bad option, but, unfortunately, nowadays most vendors do
+ *   this. Apparently with the secret goal to sell you new devices, when you
+ *   will add new protocol to your host, f.e. IPv6 8)
+ *
+ *   CHECKSUM_UNNECESSARY is applicable to following protocols:
+ *     TCP: IPv6 and IPv4.
+ *     UDP: IPv4 and IPv6. A device may apply CHECKSUM_UNNECESSARY to a
+ *       zero UDP checksum for either IPv4 or IPv6, the networking stack
+ *       may perform further validation in this case.
+ *     GRE: only if the checksum is present in the header.
+ *     SCTP: indicates the CRC in SCTP header has been validated.
+ *
+ *   skb->csum_level indicates the number of consecutive checksums found in
+ *   the packet minus one that have been verified as CHECKSUM_UNNECESSARY.
+ *   For instance if a device receives an IPv6->UDP->GRE->IPv4->TCP packet
+ *   and a device is able to verify the checksums for UDP (possibly zero),
+ *   GRE (checksum flag is set), and TCP-- skb->csum_level would be set to
+ *   two. If the device were only able to verify the UDP checksum and not
+ *   GRE, either because it doesn't support GRE checksum of because GRE
+ *   checksum is bad, skb->csum_level would be set to zero (TCP checksum is
+ *   not considered in this case).
+ *
+ * CHECKSUM_COMPLETE:
+ *
+ *   This is the most generic way. The device supplied checksum of the _whole_
+ *   packet as seen by netif_rx() and fills out in skb->csum. Meaning, the
+ *   hardware doesn't need to parse L3/L4 headers to implement this.
+ *
+ *   Note: Even if device supports only some protocols, but is able to produce
+ *   skb->csum, it MUST use CHECKSUM_COMPLETE, not CHECKSUM_UNNECESSARY.
+ *
+ * CHECKSUM_PARTIAL:
+ *
+ *   A checksum is set up to be offloaded to a device as described in the
+ *   output description for CHECKSUM_PARTIAL. This may occur on a packet
+ *   received directly from another Linux OS, e.g., a virtualized Linux kernel
+ *   on the same host, or it may be set in the input path in GRO or remote
+ *   checksum offload. For the purposes of checksum verification, the checksum
+ *   referred to by skb->csum_start + skb->csum_offset and any preceding
+ *   checksums in the packet are considered verified. Any checksums in the
+ *   packet that are after the checksum being offloaded are not considered to
+ *   be verified.
+ *
+ * B. Checksumming on output.
+ *
+ * CHECKSUM_NONE:
+ *
+ *   The skb was already checksummed by the protocol, or a checksum is not
+ *   required.
+ *
+ * CHECKSUM_PARTIAL:
+ *
+ *   The device is required to checksum the packet as seen by hard_start_xmit()
+ *   from skb->csum_start up to the end, and to record/write the checksum at
+ *   offset skb->csum_start + skb->csum_offset.
+ *
+ *   The device must show its capabilities in dev->features, set up at device
+ *   setup time, e.g. netdev_features.h:
+ *
+ *	NETIF_F_HW_CSUM	- It's a clever device, it's able to checksum everything.
+ *	NETIF_F_IP_CSUM - Device is dumb, it's able to checksum only TCP/UDP over
+ *			  IPv4. Sigh. Vendors like this way for an unknown reason.
+ *			  Though, see comment above about CHECKSUM_UNNECESSARY. 8)
+ *	NETIF_F_IPV6_CSUM - About as dumb as the last one but does IPv6 instead.
+ *	NETIF_F_...     - Well, you get the picture.
+ *
+ * CHECKSUM_UNNECESSARY:
+ *
+ *   Normally, the device will do per protocol specific checksumming. Protocol
+ *   implementations that do not want the NIC(Network Interface Controller,网卡) 
+	 to perform the checksum calculation should use this flag in their outgoing skbs.
+ *
+ *	NETIF_F_FCOE_CRC - This indicates that the device can do FCoE FC CRC
+ *			   offload. Correspondingly, the FCoE protocol driver
+ *			   stack should use CHECKSUM_UNNECESSARY.
+ *
+ * Any questions? No questions, good.		--ANK
+ */
+
+/* Don't change this without changing skb_csum_unnecessary! */
+#define CHECKSUM_NONE		0
+#define CHECKSUM_UNNECESSARY	1
+#define CHECKSUM_COMPLETE	2
+#define CHECKSUM_PARTIAL	3
+\end{minted}
+			\subsubsection{\mintinline{C}{skb_csum_unnecessary}}
+\begin{minted}[linenos]{C}
+/*
+Location:
+
+	include/linux/skbuff.h
+
+Parameter:
+
+	skb:传输控制块缓存
+*/
+static inline int skb_csum_unnecessary(const struct sk_buff *skb)
+{
+	return ((skb->ip_summed == CHECKSUM_UNNECESSARY) ||
+		skb->csum_valid ||
+		(skb->ip_summed == CHECKSUM_PARTIAL &&
+		 skb_checksum_start_offset(skb) >= 0));
+}
+\end{minted}
+			如果不想要网卡帮忙校验或者Checksum合法，或者硬件给出的时部分校验并且校验的偏移必须大于零。
+			则返回1,否则，返回0。
+			\subsubsection{\mintinline{C}{__skb_checksum_complete}}
+\begin{minted}[linenos]{C}
+__sum16 __skb_checksum_complete(struct sk_buff *skb)
+{
+	__wsum csum;
+	__sum16 sum;
+
+	csum = skb_checksum(skb, 0, skb->len, 0);
+
+	/* skb->csum holds pseudo checksum */
+	sum = csum_fold(csum_add(skb->csum, csum));
+	if (likely(!sum)) {
+		if (unlikely(skb->ip_summed == CHECKSUM_COMPLETE) &&
+		    !skb->csum_complete_sw)
+			netdev_rx_csum_fault(skb->dev);
+	}
+
+	if (!skb_shared(skb)) {
+		/* Save full packet checksum */
+		skb->csum = csum;
+		skb->ip_summed = CHECKSUM_COMPLETE;
+		skb->csum_complete_sw = 1;
+		skb->csum_valid = !sum;
+	}
+
+	return sum;
+}
+\end{minted}	
 		\subsection{SK Stream}
 Linux内核中，提供了一套通用的处理网络数据流的函数。这一套函数是为了共享各种协议中，
 和处理数据流相关的代码，以实现代码重用。
-
 \subsection{\mintinline{c}{sk_stream_wait_connect}}
 该函数用于等待套接字完成连接。
 \begin{minted}[linenos]{c}
@@ -393,19 +543,19 @@ default：为TCP socket预留用于发送缓冲的内存数量，默认情况下
 
 max: 用于TCP socket发送缓冲的内存最大值。该值不会影响net.core.wmem\_max，"静态"选择参数SO\_SNDBUF则不受该值影响。默认值为131072(128K)。（对于服务器而言，增加这个参数的值对于发送数据很有帮助,在我的网络环境中,修改为了51200 131072 204800）
 
-\item[tcp\_rmem (3个INTEGER变量)] min, default, max。
+\item[tcp\_rmem ] (3个INTEGER变量)min, default, max。
 min：为TCP socket预留用于接收缓冲的内存数量，即使在内存出现紧张情况下tcp socket都至少会有这么多数量的内存用于接收缓冲，默认值为8K。
 
 default：为TCP socket预留用于接收缓冲的内存数量，默认情况下该值影响其它协议使用的net.core.wmem\_default 值。该值决定了在tcp\_adv\_win\_scale、tcp\_app\_win和tcp\_app\_win=0默认值情况下，TCP窗口大小为65535。默认值为87380
 
 max：用于TCP socket接收缓冲的内存最大值。该值不会影响 net.core.wmem\_max，"静态"选择参数 SO\_SNDBUF则不受该值影响。默认值为 128K。默认值为87380*2 bytes。（可以看出，.max的设置最好是default的两倍,对于NAT来说主要该增加它,我的网络里为 51200 131072 204800）
 
-\item[tcp\_mem(3个INTEGER变量)] low, pressure, high。
-low：当TCP使用了低于该值的内存页面数时，TCP不会考虑释放内存。(理想情况下，这个值应与指定给 tcp\_wmem 的第 2 个值相匹配 - 这第 2 个值表明，最大页面大小乘以最大并发请求数除以页大小 (131072 * 300 / 4096)。 )
+\item[tcp\_mem] (3个INTEGER变量)low, pressure, high。
+					low：当TCP使用了低于该值的内存页面数时，TCP不会考虑释放内存。(理想情况下，这个值应与指定给 tcp\_wmem 的第 2 个值相匹配 - 这第 2 个值表明，最大页面大小乘以最大并发请求数除以页大小 (131072 * 300 / 4096)。 )
 
-pressure：当TCP使用了超过该值的内存页面数量时，TCP试图稳定其内存使用，进入pressure模式，当内存消耗低于low值时则退出pressure状态。(理想情况下这个值应该是 TCP 可以使用的总缓冲区大小的最大值 (204800 * 300 / 4096)。 )
+					pressure：当TCP使用了超过该值的内存页面数量时，TCP试图稳定其内存使用，进入pressure模式，当内存消耗低于low值时则退出pressure状态。(理想情况下这个值应该是 TCP 可以使用的总缓冲区大小的最大值 (204800 * 300 / 4096)。 )
 
-high：允许所有tcp sockets用于排队缓冲数据报的页面量。(如果超过这个值，TCP 连接将被拒绝，这就是为什么不要令其过于保守 (512000 * 300 / 4096) 的原因了。 在这种情况下，提供的价值很大，它能处理很多连接，是所预期的 2.5 倍；或者使现有连接能够传输 2.5 倍的数据。 我的网络里为192000 300000 732000)
+					high：允许所有tcp sockets用于排队缓冲数据报的页面量。(如果超过这个值，TCP 连接将被拒绝，这就是为什么不要令其过于保守 (512000 * 300 / 4096) 的原因了。 在这种情况下，提供的价值很大，它能处理很多连接，是所预期的 2.5 倍；或者使现有连接能够传输 2.5 倍的数据。 我的网络里为192000 300000 732000)
 
 一般情况下这些值是在系统启动时根据系统内存数量计算得到的。
 
@@ -424,12 +574,12 @@ high：允许所有tcp sockets用于排队缓冲数据报的页面量。(如果�
 \item[tcp\_low\_latency]	BOOLEAN,缺省值为0。该段的英文阐述如下：If set, the TCP stack makes decisions that prefer lower latency as opposed to higher throughput. By default, this option is not set meaning that higher throughput is preferred. An example of an application where this default should be changed would be a Beowulf compute cluster. 可以看出该选项在设置的时候主要是用于高吞吐量的环境，而设置之后，则是主要用于低延时的环境。这个选项一般情形是的禁用，但在构建Beowulf 集群(超算)的时候,打开它很有帮助。
 
 \item[tcp\_westwood] BOOLEAN,
-缺省值为0
-启用发送者端的拥塞控制算法，它可以维护对吞吐量的评估，并试图对带宽的整体利用情况进行优化；对于 WAN 通信来说应该启用这个选项。
+					缺省值为0,
+					启用发送者端的拥塞控制算法，它可以维护对吞吐量的评估，并试图对带宽的整体利用情况进行优化；对于 WAN 通信来说应该启用这个选项。
 
 \item[tcp\_bic] BOOLEAN,
-缺省值为0
-为快速长距离网络启用 Binary Increase Congestion；这样可以更好地利用以 GB 速度进行操作的链接；对于 WAN 通信应该启用这个选项。
+				缺省值为0,
+				为快速长距离网络启用 Binary Increase Congestion；这样可以更好地利用以 GB 速度进行操作的链接；对于 WAN 通信应该启用这个选项。
 \end{enumerate}
     \subsection{TCP相关宏定义}
         \subsubsection{标志宏}
@@ -483,6 +633,38 @@ high：允许所有tcp sockets用于排队缓冲数据报的页面量。(如果�
 
 　　                        4）网络上是不是把我的数据包给复制了。
 \end{enumerate}
+		\subsubsection{函数宏}
+	\subsection{TCP CheckSum}
+		\subsubsection{\mintinline{C}{tcp_checksum_complete}}
+			该函数时基于伪首部累加和，完成全包校验和的检测，值得注意的是，该函数用于
+			校验没有负载的TCP段。如果需要校验，并且校验成功，则返回1。
+\begin{minted}[linenos]{C}
+/*
+Location:
+	include/net/tcp.h
+*/
+static inline bool tcp_checksum_complete(struct sk_buff *skb)
+{
+	return !skb_csum_unnecessary(skb) &&
+		__tcp_checksum_complete(skb);
+}
+\end{minted}
+			对于\mintinline{C}{__tcp_checksum_complete}函数，如下：
+\begin{minted}[linenos]{C}
+/*
+Location:
+	include/net/tcp.h
+*/
+static inline __sum16 __tcp_checksum_complete(struct sk_buff *skb)
+{
+	return __skb_checksum_complete(skb);
+}
+\end{minted}
+			对于函数\mintinline{C}{__skb_checksum_complete},参见BSD Socket处的叙述。	
+		\subsubsection{\mintinline{C}{tcp_v4_checksum_init}}
+\begin{minted}[linenos]{C}
+
+\end{minted}
 
     \subsection{\mintinline{c}{__tcp_push_pending_frames}}
 \begin{minted}[linenos]{c}
