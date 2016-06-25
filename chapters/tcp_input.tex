@@ -1,5 +1,8 @@
 \chapter{TCP输入}
 \label{chapter:tcp_input}
+
+\minitoc
+
 	\section{Linux内核网络数据接收流程概览}
         \begin{figure}[htb]        
             \centering
@@ -26,6 +29,19 @@
 \end{enumerate}
 
 		而在本文的分析中，我们主要关注的时TCP层的实现，故而我们主要分析INET Socket层。
+
+		TCP传输控制块主要有三个关于接收的队列，接收队列，prequeue队列和后备队列。
+
+		当启用tcp\_low\_latency(参见非核心部分讲解)时，TCP传输控制块在软中断中接收并处理TCP段，然后将其插入到
+		接收队列中，等待用户进程从接收队列中获取TCP段后复制到用户空间中，最终删除并释放。
+
+		而不启用tcp\_low\_latency这个选项的时候，则可以提高tcp协议栈的吞吐量及反应速度。TCP传输控制块在软中断中
+		将TCP段添加到prequeue队列中，然后立即处理prequeue队列中的段，如果用户进程正在读取数据，则可以直接复制数据到用户空间
+		的缓存区中，否则添加到接收队列中，然后从软中断返回。在多数情况下，有机会处理prequeue队列中的ban，但只有当用户
+		进程在进行recv类系统调用之前，才在软中断中复制数据到用户空间的缓存区。
+
+		当然，在用户进程因操作传输控制块而将其锁定时，无论是否启用tcp\_low\_latency，都会将未处理的TCP段添加到后备队列中，一旦用户
+		进程解锁传输控制块，就会立即处理后备队列，将TCP段处理之后添加到接收队列中。
 	\section{自底向上调用与自顶向下调用}
 		\subsection{自底向上处理}
 			\subsubsection{\mintinline{C}{tcp_v4_rcv}}
@@ -281,6 +297,9 @@ do_time_wait:
 	goto discard_it;
 }
 \end{minted}
+
+			\subsubsection{\mintinline{C}{tcp_prequeue}}
+	
 		\subsection{自顶向下处理}
 			\subsubsection{\mintinline{C}{tcp_recvmsg}}
 				我们一步一步对该函数进行分析。
