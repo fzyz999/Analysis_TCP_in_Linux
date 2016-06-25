@@ -456,8 +456,8 @@ struct request_sock {
 私有的变量。这里值得注意的是，如果想要跨层传递数据，则需要使用
 \mintinline{c}{skb_clone()}。XFRM则是Linux在2.6版本中引入的一个安全方面的扩展。
 
-之后，又定义了一些长度相关的字段。\mintinline{c}{len}代表buffer中的数据长度（含
-各协议的头部），以及分片长度。而\mintinline{c}{len}代表分片中的数据的长度。
+之后，又定义了一些长度相关的字段。\mintinline{c}{len}代表buffer中的数据报总长度（含
+各协议的头部），以及分片长度。而\mintinline{c}{data_len}代表分片中的数据的长度。
 \mintinline{c}{mac_len}是MAC层头部的长度。\mintinline{c}{hdr_len}是一个
 克隆出来的可写的头部的长度。
 \begin{minted}[linenos]{c}
