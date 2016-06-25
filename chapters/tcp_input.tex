@@ -26,8 +26,9 @@
 \end{enumerate}
 
 		而在本文的分析中，我们主要关注的时TCP层的实现，故而我们主要分析INET Socket层。
-	\section{\mintinline{C}{tcp_recvmsg}}
-		我们一步一步对该函数进行分析。
+	\section{自顶向下调用与自底向上调用}	
+		\subsection{自顶向下：\mintinline{C}{tcp_recvmsg}}
+			我们一步一步对该函数进行分析。
 \begin{minted}[linenos]{C}
 /*
 Location:
@@ -356,14 +357,20 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
 			int chunk;
 
 			/* __ Restore normal policy in scheduler __ */
-
+			/*
+				更新剩余用户空间长度以及已经复制到用户空间的数据长度
+			*/
 			chunk = len - tp->ucopy.len;
 			if (chunk != 0) {
 				NET_ADD_STATS_USER(sock_net(sk), LINUX_MIB_TCPDIRECTCOPYFROMBACKLOG, chunk);
 				len -= chunk;
 				copied += chunk;
 			}
-
+			/*
+				如果接收到接收队列中的数据已经全部复制到用户进程空间，
+				但prequeue队列不为空，则需要继续处理prequeue队列，并
+				更新剩余的用户空间的长度和已经复制到用户空间的数据长度。				
+			*/
 			if (tp->rcv_nxt == tp->copied_seq &&
 			    !skb_queue_empty(&tp->ucopy.prequeue)) {
 do_prequeue:
@@ -377,6 +384,10 @@ do_prequeue:
 				}
 			}
 		}
+\end{minted}
+		处理完prequeue队列后，如果有更新copied\_seq，且只是查看数据，则需要更新peek\_seq。
+		然后继续获取下一个段进行处理。
+\begin{minted}[linenos]{C}
 		if ((flags & MSG_PEEK) &&
 		    (peek_seq - copied - urg_hole != tp->copied_seq)) {
 			net_dbg_ratelimited("TCP(%s:%d): Application bug, race in MSG_PEEK\n",
@@ -385,14 +396,33 @@ do_prequeue:
 			peek_seq = tp->copied_seq;
 		}
 		continue;
-
+\end{minted}
+		
+		
+\begin{minted}[linenos]{C}
 	found_ok_skb:
 		/* Ok so how much can we use? */
+		/*
+			获取该可读取段的数据长度，在前面的处理中
+			已由TCP序号得到本次读取数据在该段中的偏移。
+		*/
 		used = skb->len - offset;
 		if (len < used)
 			used = len;
 
-		/* Do we have urgent data here? */
+		/* Do we have urgent data here? 
+			如果该段中包含带外数据，则获取带外数据在该段中的偏移。
+			如果偏移在该段可读的范围内，则表示带外数据有效。
+			进而
+				如果带外数据偏移为0,则说明目前需要的数据正是带外数据，
+			且带外数据不允许放入到正常的数据流中，即在普通的数据数据
+			流中接受带外数据，则需要调整读取正常数据流的一些参数，如已
+			读取数据的序号、正常数据的偏移等。最后，如果可读数据经过调
+			整之后为0，则说明没有数据可读，跳过本次读数据过程到skip_copy处
+			处理。
+				如果带外数据偏移不为0,则需要调整本次读取的正常长度直到读到带外
+			数据为止。
+		*/
 		if (tp->urg_data) {
 			u32 urg_offset = tp->urg_seq - *seq;
 			if (urg_offset < used) {
@@ -409,8 +439,15 @@ do_prequeue:
 					used = urg_offset;
 			}
 		}
-
+\end{minted}
+	
+	接下来处理读取数据的情况。
+\begin{minted}[linenos]{C}
 		if (!(flags & MSG_TRUNC)) {
+			/*
+				调用skb_copy_datagram_msg来将数据复制到用户空间
+				并且根据返回的值来判断是否出现了错误。
+			*/			
 			err = skb_copy_datagram_msg(skb, offset, msg, used);
 			if (err) {
 				/* Exception. Bailout! */
@@ -419,27 +456,51 @@ do_prequeue:
 				break;
 			}
 		}
-
+		/*
+			调整读正常数据流的一些参数，如已读取数据的序号、已读取
+			数据的长度，剩余的可以使用的用户空间缓存大小。如果是截短，
+			则通过调整这些参数，多余的数据就默默被丢弃了。
+		*/
 		*seq += used;
 		copied += used;
 		len -= used;
-
+		/*tcp_rcv_space_adjust调整合理的TCP接收缓存的大小*/
 		tcp_rcv_space_adjust(sk);
+\end{minted}
 
+	
+\begin{minted}[linenos]{C}
 skip_copy:
+		/*
+			如果已经完成了对带外数据的处理，则将带外数据标志清零，
+			设置首部预测标志，下一个接收到的段，就又可以通过首部预测执行快速
+			路径还是慢速路径了。
+		*/
 		if (tp->urg_data && after(tp->copied_seq, tp->urg_seq)) {
 			tp->urg_data = 0;
 			tcp_fast_path_check(sk);
 		}
+		/*
+			如果该段还有数据没有读取(如带外数据)，则只能继续处理该段，而不能将
+			该段从接收队列中删除。
+		*/
 		if (used + offset < skb->len)
 			continue;
-
+		/*如果发现段中存在FIN标志，则跳转到found\_fin\_ok标签处处理*/
 		if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN)
 			goto found_fin_ok;
+		/*
+			如果已经读完该段的全部数据，且不是查看数据，则可以将该段从接收队列中
+			删除，然后继续处理后续的段。		
+		*/
 		if (!(flags & MSG_PEEK))
 			sk_eat_skb(sk, skb);
 		continue;
-
+	/*
+		由于FIN标志占一个序号，因此当前读取的序号需要递增。
+		如果已经读完该段的全部数据并且不是查看数据，则可以将该段从
+		接收队列中删除。然后就可以退出了，无需处理后续的段了。
+	*/
 	found_fin_ok:
 		/* Process the FIN. */
 		++*seq;
@@ -447,26 +508,41 @@ skip_copy:
 			sk_eat_skb(sk, skb);
 		break;
 	} while (len > 0);
+\end{minted}
 
+	
+\begin{minted}[linenos]{C}
 	if (user_recv) {
+		//prequeue队列非空
 		if (!skb_queue_empty(&tp->ucopy.prequeue)) {
 			int chunk;
 
 			tp->ucopy.len = copied > 0 ? len : 0;
-
+			//处理prequeue队列。
 			tcp_prequeue_process(sk);
-
+			/*
+				如果在处理prequeue队列的过程中又有一部分数据复制到用户空间，则需要调整剩余的
+				可用用户空间缓存大小和已读取数据的序号。
+			*/
 			if (copied > 0 && (chunk = len - tp->ucopy.len) != 0) {
 				NET_ADD_STATS_USER(sock_net(sk), LINUX_MIB_TCPDIRECTCOPYFROMPREQUEUE, chunk);
 				len -= chunk;
 				copied += chunk;
 			}
 		}
-
+		/*
+			最后清零ucopy.task和ucopy.len，表示用户当前没有读取数据。这样当处理prequeue队列时，
+			不会将数据复制到用户空间，因为只有在未启用tcp_low_latency的情况下，用户进程主动读取
+			时，才有机会将数据直接复制到用户空间。
+		*/
 		tp->ucopy.task = NULL;
 		tp->ucopy.len = 0;
 	}
-
+\end
+	
+	在完成读取数据后，需再次检测是否有必要立即发送ACK段，并根据情况确定是否发送ACK段。在返回之前需解锁传输控制块。
+	返回已经读取的字节数。
+\begin{minted}[linenos]{C}
 	/* According to UNIX98, msg_name/msg_namelen are ignored
 	 * on connected socket. I was just happy when found this 8) --ANK
 	 */
@@ -476,17 +552,30 @@ skip_copy:
 
 	release_sock(sk);
 	return copied;
-
+\end{minted}
+	接下来，进行一些其他情况的处理。
+\begin{minted}[linenos]{C}
+/*
+	如果在读取的过程中遇到l错误，就会跳转到此，解锁传输层然后返回错误码。
+*/
 out:
 	release_sock(sk);
 	return err;
-
+/*
+	如果是接收带外数据，则调用tcp_recv_urg接收。
+*/
 recv_urg:
 	err = tcp_recv_urg(sk, msg, len, flags);
 	goto out;
-
+/*
+??这一步是干什么的呢？
+*/
 recv_sndq:
 	err = tcp_peek_sndq(sk, msg, len);
 	goto out;
 }
+\end{minted}
+		\subsection{自底向上：\mintinline{C}{tcp_v4_rcv}}
+\begin{minted}[linenos]{C}
+
 \end{minted}
