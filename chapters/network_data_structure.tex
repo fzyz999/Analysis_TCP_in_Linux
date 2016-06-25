@@ -681,8 +681,14 @@ Description:
 */
 struct ip_options {
     __be32      faddr;
+	/*下一跳*/
     __be32      nexthop;
+	/*标识IP首部中选项所占的字节数*/
     unsigned char   optlen;
+	/*
+		记录宽松路由或严格路由选项在IP首部中的偏移量，
+		即选项的第一个字节的地址减去IP首部的第一个字节的地址
+	*/
     unsigned char   srr;
     unsigned char   rr;
     unsigned char   ts;

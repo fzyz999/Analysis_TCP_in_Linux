@@ -13,9 +13,11 @@
                 \begin{figure}[htb]        
                     \centering
                     \includegraphics[width=\textwidth]  {images/Client:Send SYN.png}
+					\caption{Client:Send SYN}
+					\label{Client:Send SYN}
                 \end{figure}            
         \subsubsection{\mintinline{C}{tcp_v4_connect}}
-        \label{subsubsec:tcp_v4_connect}
+        	\label{Client:tcp_v4_connect}
 
             \mintinline{c}{tcp_v4_connect}的主要作用是进行一系列的判断，初始化传输控制块
             并调用相关函数发送SYN包。
@@ -27,13 +29,13 @@ Location:
 
 Function:
 
-    这个函数会初始化一个发送用的连接。
+    这个函数会初始化一个的连接。
 
 Parameters:
 
     sk:传输控制块
     uaddr:通用地址结构，包含所属协议字段和相应的地址字段。
-    addrlen :
+    addr_len :目的地址长度
 */
 int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 {
@@ -43,8 +45,13 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
         struct sockaddr_in *usin = (struct sockaddr_in *)uaddr; 
         struct inet_sock *inet = inet_sk(sk);
         struct tcp_sock *tp = tcp_sk(sk);
+		/*
+			网络协议主要使用大端存储，
+			be16 means 16 bits stored with big-endian
+			be32,the same.
+		*/
         __be16 orig_sport, orig_dport;
-        __be32 daddr, nexthop;                  //网络协议主要使用大端存储，be32 means 32 bits stored with big-endian
+        __be32 daddr, nexthop;                  
         struct flowi4 *fl4;
         struct rtable *rt;
         int err;
@@ -55,8 +62,8 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
                 return -EINVAL;                 //Invalid argument 错误码为22
 
         /* 检验协议族是否正确 */
-        if (usin->sin_family != AF_INET)        //IPV4地址域
-                return -EAFNOSUPPORT;           //Address family not supported by protocol
+        if (usin->sin_family != AF_INET)  //IPV4地址域
+                return -EAFNOSUPPORT;     //Address family not supported by protocol
 
         /* 将下一跳地址和目的地址暂时设置为用户传入的IP地址 */
         nexthop = daddr = usin->sin_addr.s_addr;
@@ -69,6 +76,9 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
                 nexthop = inet_opt->opt.faddr;
         }
 \end{minted}
+
+			上面	rcu\_dereference\_protected函数使用了RCU锁，RCU锁的基本介绍参见\ref{Appendix:RCU}.
+
             源地址路由是一种特殊的路由策略。一般路由都是通过目的地址来进行的。而有时也需要
             通过源地址来进行路由，例如在有多个网卡等情况下，可以根据源地址来决定走哪个网卡等等。
 
@@ -76,8 +86,10 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
         orig_sport = inet->inet_sport;
         orig_dport = usin->sin_port;
         fl4 = &inet->cork.fl.u.ip4;     //对应于ipv4的流
-        /* 获取目标的路由缓存项，如果路由查找命中，则生成一个相应的路由缓存项，这个缓存项不但可以用于
-            当前待发送的SYN段，而且对后续的所有数据包都可以起到一个加速路由查找的作用。*/
+        /* 获取目标的路由缓存项，如果路由查找命中，则生成一个相应的路由缓存项，
+			这个缓存项不但可以用于当前待发送的SYN段，而且对后续的所有数据包都
+			可以起到一个加速路由查找的作用。
+		*/
         rt = ip_route_connect(fl4, nexthop, inet->inet_saddr,
                               RT_CONN_FLAGS(sk), sk->sk_bound_dev_if,
                               IPPROTO_TCP,
@@ -89,14 +101,18 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
                         IP_INC_STATS(sock_net(sk), IPSTATS_MIB_OUTNOROUTES);
                 return err;
         }
+\end{minted}
 
+		对于函数IS\_ERR、PTR\_ERR的具体介绍，请参见\ref{Appendix:ERR}.
+
+\begin{minted}[linenos]{C}
         /*TCP不能使用类型为组播或多播的路由缓存项*/
         if (rt->rt_flags & (RTCF_MULTICAST | RTCF_BROADCAST)) {
                 ip_rt_put(rt);
                 return -ENETUNREACH;        //Network is unreachable
         }
 
-        /* 如果没有开启源路由功能，则采用查找到的缓存项 */
+        /* 如果IP选项为空或者没有开启源路由功能，则采用查找到的缓存项 */
         if (!inet_opt || !inet_opt->opt.srr)
                 daddr = fl4->daddr;
 
@@ -105,7 +121,8 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
                 inet->inet_saddr = fl4->saddr;
         sk_rcv_saddr_set(sk, inet->inet_saddr);
 
-        /* 如果该传输控制块的时间戳已被使用过，则重置各状态 
+        /* 
+			如果该传输控制块的时间戳已被使用过，则重置各状态 
             rx_opt:  tcp_options_received
         */
         if (tp->rx_opt.ts_recent_stamp && inet->inet_daddr != daddr) {
@@ -119,7 +136,8 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
                         tp->write_seq      = 0;
         }
 
-        /*  在启用了tw_recycle:time wait recycle的情况下，重设时间戳 
+        /*  
+			在启用了tw_recycle:time wait recycle的情况下，重设时间戳 
             它用来快速回收TIME_WAIT连接.
         */
         if (tcp_death_row.sysctl_tw_recycle &&
@@ -150,7 +168,10 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 
         sk_set_txhash(sk);
 
-        /*如果源端口或者目的端口发生改变，则需要重新查找路由，并用新的路由缓存项更新sk中保存的路由缓存项。*/
+        /*
+			如果源端口或者目的端口发生改变，则需要重新查找路由，
+			并用新的路由缓存项更新sk中保存的路由缓存项。
+		*/
         rt = ip_route_newports(fl4, rt, orig_sport, orig_dport,
                                inet->inet_sport, inet->inet_dport, sk);
         if (IS_ERR(rt)) {
@@ -162,7 +183,8 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
         sk->sk_gso_type = SKB_GSO_TCPV4;
         sk_setup_caps(sk, &rt->dst);
 
-        /*  如果没有设置序号，则计算初始序号 
+        /*  
+			如果没有设置序号，则计算初始序号 
             序号与双方的地址与端口号有关系
         */
         if (!tp->write_seq && likely(!tp->repair))
@@ -171,7 +193,8 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
                                                            inet->inet_sport,
                                                            usin->sin_port);
                                                            
-        /*  计算IP首部的id域的值 
+        /*  
+			计算IP首部的id域的值 
             全局变量jiffies用来记录自系统启动以来产生的节拍的总数       
         */
         inet->inet_id = tp->write_seq ^ jiffies;

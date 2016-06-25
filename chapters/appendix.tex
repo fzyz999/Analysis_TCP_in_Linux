@@ -191,7 +191,7 @@ Function:
 #define EHWPOISON	133	/* Memory page has hardware error */
 \end{minted}
 			\subsubsection{\mintinline{C}{IS_ERR,PTR_ERR,ERR_PTR}}
-
+				\label{Appendix:ERR}
 				相关定义如下：
 \begin{minted}[linenos]{C}
 /*
@@ -243,6 +243,12 @@ static inline bool __must_check IS_ERR_OR_NULL(__force const void *ptr)
 				至于PTR\_ERR(), ERR\_PTR()，只是强制转换以下而已。而PTR\_ERR()只是返回错误代码，也就是提供一个信息给调用者，如果你只需要知道是否出错，而不在乎因为什么而出错，那你当然不用调用PTR\_ERR()了。
 
 				如果指针指向了最后一个page，那么说明实际上这不是一个有效的指针。这个指针里保存的实际上是一种错误代码。而通常很常用的方法就是先用IS\_ERR()来判断是否是错误，然后如果是，那么就调用PTR\_ERR()来返回这个错误代码。
+
+				\textcolor{blue}{调用位置}:
+
+\begin{enumerate}
+\item[1]		\ref{Client:tcp_v4_connect}中tcp\_v4\_connect调用IS\_ERR.
+\end{enumerate}
 		\subsection{调试函数}
 			\subsubsection{BUG\_ON}
 \begin{minted}[linenos]{C}
@@ -406,17 +412,32 @@ typedef __u64 __bitwise __be64;
 		
 	\section{操作系统}
 		\subsection{RCU}
-			RCU(Read-Copy Update),是数据同步的一种方式，在当前的Linux内核中发挥着重要的作用。RCU主要针对的数据对象是链表，目的是提高遍历读取数据的效率，为了达到目的使用RCU机制读取数据的时候不对链表进行耗时的加锁操作。这样在同一时间可以有多个线程同时读取该链表，并且允许一个线程对链表进行修改（修改的时候，需要加锁）。RCU适用于需要频繁的读取数据，而相应修改数据并不多的情景，例如在文件系统中，经常需要查找定位目录，而对目录的修改相对来说并不多，这就是RCU发挥作用的最佳场景。
+			\label{Appendix:RCU}
+			RCU(Read-Copy Update),是数据同步的一种方式，在当前的Linux内核中发挥着重要的作用。
+			RCU主要针对的数据对象是链表，目的是提高遍历读取数据的效率。为了达到目的，
+			使用RCU机制读取数据的时候不对链表进行耗时的加锁操作。
+			这样在同一时间可以有多个线程同时读取该链表，并且允许一个线程对链表进行修改（修改的时候，需要加锁）。
+			RCU适用于需要频繁的读取数据，而相应修改数据并不多的情景，例如在文件系统中，经常需要查找定位目录，
+			而对目录的修改相对来说并不多，这就是RCU发挥作用的最佳场景。
 
-			Linux内核源码当中,关于RCU的文档比较齐全，你可以在 /Documentation/RCU/ 目录下找到这些文件。
+			Linux内核源码当中,关于RCU的文档比较齐全，我们可以在 /Documentation/RCU/ 目录下找到这些文件。
 
-			在RCU的实现过程中，我们主要解决以下问题：
+			通过RCU的实现，主要解决以下问题：
 
-       			1、在读取过程中，另外一个线程删除了一个节点。删除线程可以把这个节点从链表中移除，但它不能直接销毁这个节点，必须等到所有的读取线程读取完成以后，才进行销毁操作。RCU中把这个过程称为宽限期（Grace period）。
+       			1、在读取过程中，另外一个线程删除了一个节点。删除线程可以把这个节点从链表中移除，
+					但它不能直接销毁这个节点，必须等到所有的读取线程读取完成以后，才进行销毁操作。
+					RCU中把这个过程称为宽限期（Grace period）。
 
-       			2、在读取过程中，另外一个线程插入了一个新节点，而读线程读到了这个节点，那么需要保证读到的这个节点是完整的。这里涉及到了发布-订阅机制（Publish-Subscribe Mechanism）。
+       			2、在读取过程中，另外一个线程插入了一个新节点，而读线程读到了这个节点，那么需要保证读到的这个节点是完整的。
+					这里涉及到了发布-订阅机制（Publish-Subscribe Mechanism）。
 
-       			3、保证读取链表的完整性。新增或者删除一个节点，不至于导致遍历一个链表从中间断开。但是RCU并不保证一定能读到新增的节点或者不读到要被删除的节点。
+       			3、保证读取链表的完整性。新增或者删除一个节点，不至于导致遍历一个链表从中间断开。
+					但是RCU并不保证一定能读到新增的节点或者不读到要被删除的节点。
+
+			\textcolor{blue}{调用位置}:
+\begin{enumerate}
+\item[1]	\ref{Client:tcp_v4_connect}中tcp\_v4\_connect调用rcu\_dereference\_protected.
+\end{enumerate}
 	\section{CPU}
 		
 	\section{存储系统}

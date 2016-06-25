@@ -31,10 +31,10 @@ send(...,&server_address,...);
 \section{探寻tcp\_prot，地图get\textasciitilde{}}
 
 一般游戏的主角手中，都会有一张万能的地图。为了搞定TCP，我们自然也是需要
-一张地图的，要不连该去找那个函数看都不知道。很有幸，在\mintinline[linenos]{text}{tcp_ipv4.c}中，
-\mintinline[linenos]{text}{tcp_prot}定义了\mintinline[linenos]{text}{tcp}的各个接口。
+一张地图的，要不连该去找那个函数看都不知道。很有幸，在\mintinline{c}{tcp_ipv4.c}中，
+\mintinline{c}{tcp_prot}定义了\mintinline{c}{tcp}的各个接口。
 
-\mintinline[linenos]{text}{tcp_prot}的类型为\mintinline[linenos]{text}{struct proto}，是这个结构体是为了抽象各种不同的协议的
+\mintinline{c}{tcp_prot}的类型为\mintinline{c}{struct proto}，是这个结构体是为了抽象各种不同的协议的
 差异性而存在的。类似面向对象中所说的接口(Interface)的概念。这里，我们仅
 保留我们关系的部分。
 
