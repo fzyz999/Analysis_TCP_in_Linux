@@ -665,6 +665,132 @@ static inline __sum16 __tcp_checksum_complete(struct sk_buff *skb)
 \begin{minted}[linenos]{C}
 /*没找到。。*/
 \end{minted}
+	\subsection{TCP Initialize}
+		\subsubsection{tcp\_connnect\_init}
+			\label{TCPInitialize:tcp_connect_init}
+\begin{minted}[linenos]{C}
+/* Do all connect socket setups that can be done AF independent. */
+static void tcp_connect_init(struct sock *sk)
+{
+	const struct dst_entry *dst = __sk_dst_get(sk);
+	struct tcp_sock *tp = tcp_sk(sk);
+	__u8 rcv_wscale;
+
+	/* We'll fix this up when we get a response from the other end.
+	 * See tcp_input.c:tcp_rcv_state_process case TCP_SYN_SENT.
+	 */
+	tp->tcp_header_len = sizeof(struct tcphdr) +
+		(sysctl_tcp_timestamps ? TCPOLEN_TSTAMP_ALIGNED : 0);
+
+#ifdef CONFIG_TCP_MD5SIG
+	if (tp->af_specific->md5_lookup(sk, sk))
+		tp->tcp_header_len += TCPOLEN_MD5SIG_ALIGNED;
+#endif
+
+	/* If user gave his TCP_MAXSEG, record it to clamp */
+	if (tp->rx_opt.user_mss)
+		tp->rx_opt.mss_clamp = tp->rx_opt.user_mss;
+	tp->max_window = 0;
+	tcp_mtup_init(sk);
+	tcp_sync_mss(sk, dst_mtu(dst));
+
+	tcp_ca_dst_init(sk, dst);
+
+	if (!tp->window_clamp)
+		tp->window_clamp = dst_metric(dst, RTAX_WINDOW);
+	tp->advmss = dst_metric_advmss(dst);
+	if (tp->rx_opt.user_mss && tp->rx_opt.user_mss < tp->advmss)
+		tp->advmss = tp->rx_opt.user_mss;
+
+	tcp_initialize_rcv_mss(sk);
+
+	/* limit the window selection if the user enforce a smaller rx buffer */
+	if (sk->sk_userlocks & SOCK_RCVBUF_LOCK &&
+	    (tp->window_clamp > tcp_full_space(sk) || tp->window_clamp == 0))
+		tp->window_clamp = tcp_full_space(sk);
+
+	tcp_select_initial_window(tcp_full_space(sk),
+				  tp->advmss - (tp->rx_opt.ts_recent_stamp ? tp->tcp_header_len - sizeof(struct tcphdr) : 0),
+				  &tp->rcv_wnd,
+				  &tp->window_clamp,
+				  sysctl_tcp_window_scaling,
+				  &rcv_wscale,
+				  dst_metric(dst, RTAX_INITRWND));
+
+	tp->rx_opt.rcv_wscale = rcv_wscale;
+	tp->rcv_ssthresh = tp->rcv_wnd;
+
+	sk->sk_err = 0;
+	sock_reset_flag(sk, SOCK_DONE);
+	tp->snd_wnd = 0;
+	tcp_init_wl(tp, 0);
+	tp->snd_una = tp->write_seq;
+	tp->snd_sml = tp->write_seq;
+	tp->snd_up = tp->write_seq;
+	tp->snd_nxt = tp->write_seq;
+
+	if (likely(!tp->repair))
+		tp->rcv_nxt = 0;
+	else
+		tp->rcv_tstamp = tcp_time_stamp;
+	tp->rcv_wup = tp->rcv_nxt;
+	tp->copied_seq = tp->rcv_nxt;
+
+	inet_csk(sk)->icsk_rto = TCP_TIMEOUT_INIT;
+	inet_csk(sk)->icsk_retransmits = 0;
+	tcp_clear_retrans(tp);
+}
+\end{minted}
+
+		\textcolor{blue}{调用位置}:
+
+			\begin{enumerate}
+			\item[1]		\ref{Client:tcp_connect}的tcp\_connect中调用。
+			\end{enumerate}
+		\subsubsection{tcp\_init\_nondata\_skb}
+			\label{TCPInitialize:tcp_init_nondata_skb}
+			该函数提供了初始化不含数据的skb的功能。
+\begin{minted}[linenos]{c}
+/*
+Location:
+
+    net/ipv4/tcp_output.c
+    
+Function:
+
+    初始化不含数据的skb.
+
+Parameter:
+
+    skb:待初始化的sk_buff。
+    seq:序号
+    flags:标志位
+*/
+static void tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags)
+{
+        /* 设置校验码 */
+        skb->ip_summed = CHECKSUM_PARTIAL;
+        skb->csum = 0;
+
+        /* 设置标志位 */
+        TCP_SKB_CB(skb)->tcp_flags = flags;
+        TCP_SKB_CB(skb)->sacked = 0;
+
+        tcp_skb_pcount_set(skb, 1);
+
+        /* 设置起始序号 */
+        TCP_SKB_CB(skb)->seq = seq;
+        if (flags & (TCPHDR_SYN | TCPHDR_FIN))
+                seq++;
+        TCP_SKB_CB(skb)->end_seq = seq;
+}
+\end{minted}
+
+		\textcolor{blue}{调用位置}:
+
+			\begin{enumerate}
+			\item[1]		\ref{Client:tcp_connect}的tcp\_connect中调用。
+			\end{enumerate}
 
     \subsection{\mintinline{c}{__tcp_push_pending_frames}}
 \begin{minted}[linenos]{c}
@@ -1331,43 +1457,7 @@ void tcp_done(struct sock *sk)
 }
 \end{minted}
 
-\subsection{tcp\_init\_nondata\_skb}
-该函数提供了的功能。函数如下：
 
-
-\begin{minted}[linenos]{c}
-Location:
-
-    net/ipv4/tcp_output.c
-    
-Function:
-
-    初始化不含数据的skb.
-
-Parameter:
-
-    skb:待初始化的sk_buff。
-    seq:序号
-    flags:标志位
-static void tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags)
-{
-        /* 设置校验码 */
-        skb->ip_summed = CHECKSUM_PARTIAL;
-        skb->csum = 0;
-
-        /* 设置标志位 */
-        TCP_SKB_CB(skb)->tcp_flags = flags;
-        TCP_SKB_CB(skb)->sacked = 0;
-
-        tcp_skb_pcount_set(skb, 1);
-
-        /* 设置起始序号 */
-        TCP_SKB_CB(skb)->seq = seq;
-        if (flags & (TCPHDR_SYN | TCPHDR_FIN))
-                seq++;
-        TCP_SKB_CB(skb)->end_seq = seq;
-}
-\end{minted}
 
 \subsection{before()和after()}
 在一些需要判断序号前后的地方出现了\mintinline{c}{before()}和\mintinline{c}{after()}
