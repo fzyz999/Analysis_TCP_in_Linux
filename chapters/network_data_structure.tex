@@ -1251,8 +1251,9 @@ struct tcp_sock {
 /*
  *  Header prediction flags
  *  0x5?10 << 16 + snd_wnd in net byte order
- */
-    __be32  pred_flags;
+	首部预测标识。
+*/
+    __be32  pred_flags;	
 
 /*
  *  RFC793 variables by their proper names. This means you can
@@ -1267,7 +1268,9 @@ struct tcp_sock {
                  	* total number of segments in.
                  	*/
     u32 rcv_nxt;    /* 下一个待接收的字节号     */
-    u32 copied_seq; /* Head of yet unread data      */
+    u32 copied_seq; /* Head of yet unread data      
+						尚未读取数据的头部					
+					*/
     u32 rcv_wup;    /* rcv_nxt on last window update sent   */
     u32 snd_nxt;    /* 下一个待发送的序列        */
     u32 segs_out;   /* RFC4898 tcpEStatsPerfSegsOut
@@ -1453,7 +1456,7 @@ struct tcp_sock {
                         */
     u32 total_retrans;  /* Total retransmits for entire connection */
 
-    u32 urg_seq;    /* Seq of received urgent pointer */
+    u32 urg_seq;    	/* Seq of received urgent pointer */
     unsigned int        keepalive_time;   /* time before keep alive takes place */
     unsigned int        keepalive_intvl;  /* time interval between keep alive probes */
 

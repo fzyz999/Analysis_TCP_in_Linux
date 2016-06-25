@@ -308,21 +308,24 @@ int tcp_connect(struct sock *sk)
 \end{minted}
 
 \subsection{第二次握手：接收SYN+ACK包}
-\label{subsec:recv_synack}
+\label{Client:Recv SYN+ACK}
 
     \subsubsection{基本调用关系}
 
                 \begin{figure}[htb]        
                     \centering
                     \includegraphics[width=\textwidth]  {images/Client:Receive SYN +ACK.png}
+					\caption{Client:Receive SYN+ACK}
+					\label{Client:Receive SYN+ACK}
                 \end{figure} 
 
     \subsubsection{\mintinline{c}{tcp_rcv_state_process}}
-        \mintinline{c}{tcp_rcv_state_process}实现了TCP状态机相对较为核心的一个部分。
+		\label{SYN+ACK:tcp_rcv_state_process}
+        \mintinline{c}{tcp_rcv_state_process}实现了TCP状态机相对核心的一个部分。
         该函数可以处理除ESTABLISHED和TIME\_WAIT状态以外的情况下的接收过程。
-        这里，我们仅关心主动连接情况下的处理。在\ref{subsubsec:tcp_v4_connect}中，我们
+        这里，我们仅关心主动连接情况下的处理。在\ref{Client:tcp_v4_connect}中，我们
         分析源码时得出，客户端发送SYN包后，会将状态机设置为\mintinline{c}{TCP_SYN_SENT}状态。
-        因此，我们仅在这里分析该状态下的代码。
+        因此，我们仅在这里分析该状态下的代码。.
 
 \begin{minted}[linenos]{c}
 /*
@@ -351,7 +354,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
         int queued = 0;
         bool acceptable;
 
-        /*标识接收到的TCP段不存在TCP时间戳选项*/
+        /*标识接收到的TCP段不存在TCP时间戳选项？？why*/
         tp->rx_opt.saw_tstamp = 0;
 
         switch (sk->sk_state) {
@@ -369,6 +372,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 
                     /* 处理紧急数据并检测是否有数据需要发送 */
                     tcp_urg(sk, skb, th);
+					/*释放缓存*/
                     __kfree_skb(skb);
                     tcp_data_snd_check(sk);
                     return 0;
@@ -379,8 +383,8 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 \end{minted}
 
     \subsubsection{\mintinline{c}{tcp_rcv_synsent_state_process}}
-        具体的处理代码被放在了\mintinline{c}{tcp_rcv_synsent_state_process}中，通过
-        命名就可以看出，该函数是专门用于处理SYN\_SENT状态下收到的数据的。
+        具体的处理代码在\mintinline{c}{tcp_rcv_synsent_state_process}中，通过
+        命名就可以看出，该函数是专门用于处理SYN\_SENT状态下收到数据的情况。
 
 \begin{minted}[linenos]{c}
 /*

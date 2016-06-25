@@ -276,12 +276,8 @@ int sk_stream_wait_connect(struct sock *sk, long *timeo_p)
 EXPORT_SYMBOL(sk_stream_wait_connect);
 \end{minted}
 
-\section{Inet}
-    \subsection{\mintinline{C}{inet_hash_connect && __inet_hash_connect}}
-
     \section{Inet}
         \subsection{\mintinline{C}{inet_hash_connect && __inet_hash_connect}}
-
 
            \subsubsection{\mintinline{C}{inet_hash_connect}}
 \begin{minted}[linenos]{C}
@@ -1060,8 +1056,186 @@ Parameter:
 */
 #define tcp_verify_left_out(tp) WARN_ON(tcp_left_out(tp) > tp->packets_out)     
 \end{minted}
-\subsection{\mintinline{c}{tcp_fin_time}}
-计算等待接收FIN的超时时间。超时时间至少为$\frac{7}{2}$倍的rto。
+	\subsection{TCP Urgent Data}
+		\subsubsection{相应标识}
+\begin{minted}[linenos]{C}
+/*
+Location:
+
+	include/net/tcp.h
+*/
+#define TCP_URG_VALID	0x0100
+#define TCP_URG_NOTYET	0x0200
+#define TCP_URG_READ	0x0400
+\end{minted}
+		\subsubsection{\mintinline{C}{tcp_check_urg}}
+			\label{TCPUrgent:tcp_check_urg}
+
+\begin{minted}[linenos]{C}
+/*
+Location:
+
+	net/ipv4/tcp_input.c
+
+Function:
+
+	This routine is only called when we have urgent data
+	signaled. Its the 'slow' part of tcp_urg. It could be
+	moved inline now as tcp_urg is only called from one
+	place. We handle URGent data wrong. We have to - as
+	BSD still doesn't use the correction from RFC961.
+	For 1003.1g we should support a new option TCP_STDURG to permit
+	either form (or just set the sysctl tcp_stdurg).
+
+Parameter:
+
+	sk:传输控制块
+	th:tcp头部
+*/
+
+static void tcp_check_urg(struct sock *sk, const struct tcphdr *th)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	/*字节序转换*/
+	u32 ptr = ntohs(th->urg_ptr);
+	/*
+		计算带外数据的位置
+	注意:
+		目前仍有许多关于紧急指针是指向带外数据的最后一个字节还是指向
+		带外数据最后一个字节的下一个字节。Host Requirements RFC确定
+		指向最后一个字节是正确的。然而，大多数的实现，包括BSD的实现，
+		继续使用错误的方法来实现。因此如果启用兼容错误选项，就需要将
+		指针前移。
+	*/
+	if (ptr && !sysctl_tcp_stdurg)
+		ptr--;
+	ptr += ntohl(th->seq);
+
+	/* Ignore urgent data that we've already seen and read. 
+		如果我们已经读取过或者接收过相应的数据，就忽略。
+	*/
+	if (after(tp->copied_seq, ptr))
+		return;
+
+	/* Do not replay urg ptr.
+	 *
+	 * NOTE: interesting situation not covered by specs.
+	 * Misbehaving sender may send urg ptr, pointing to segment,
+	 * which we already have in ofo queue. We are not able to fetch
+	 * such data and will stay in TCP_URG_NOTYET until will be eaten
+	 * by recvmsg(). Seems, we are not obliged to handle such wicked
+	 * situations. But it is worth to think about possibility of some
+	 * DoSes using some hypothetical application level deadlock.
+	 */
+	if (before(ptr, tp->rcv_nxt))
+		return;
+
+	/* Do we already have a newer (or duplicate) urgent pointer? 
+		如果还有带外数据用户进程尚未读取，并且当前带外数据早于该
+		尚未读取的带外数据，则丢弃该带外数据。
+	*/
+	if (tp->urg_data && !after(ptr, tp->urg_seq))
+		return;
+
+	/* Tell the world about our new urgent pointer. 
+		唤醒异步等待该套接口的进程，并告诉它们有新的带外数据到达。
+	*/
+	sk_send_sigurg(sk);
+
+	/* We may be adding urgent data when the last byte read was
+	 * urgent. To do this requires some care. We cannot just ignore
+	 * tp->copied_seq since we would read the last urgent byte again
+	 * as data, nor can we alter copied_seq until this data arrives
+	 * or we break the semantics of SIOCATMARK (and thus sockatmark())
+	 *
+	 * NOTE. Double Dutch. Rendering to plain English: author of comment
+	 * above did something sort of 	send("A", MSG_OOB); send("B", MSG_OOB);
+	 * and expect that both A and B disappear from stream. This is _wrong_.
+	 * Though this happens in BSD with high probability, this is occasional.
+	 * Any application relying on this is buggy. Note also, that fix "works"
+	 * only in this artificial test. Insert some normal data between A and B and we will
+	 * decline of BSD again. Verdict: it is better to remove to trap
+	 * buggy users.
+	 */
+	/*
+		在当前接收到的带外数据的段的序号正是接下来需要复制到进程空间
+		的段的序号，且下一个接收段的序号与需要复制到进程空间的序号相等
+		的情况下，需要检测接收队列中的第一个段是否有效。因为当前处理的
+		是带外数据，因此需要递增copied_seq。接着检测接收队列中第一个段
+		是否已经国企，如果是，则释放。
+	*/
+	if (tp->urg_seq == tp->copied_seq && tp->urg_data &&
+	    !sock_flag(sk, SOCK_URGINLINE) && tp->copied_seq != tp->rcv_nxt) {
+		struct sk_buff *skb = skb_peek(&sk->sk_receive_queue);
+		tp->copied_seq++;
+		if (skb && !before(tp->copied_seq, TCP_SKB_CB(skb)->end_seq)) {
+			__skb_unlink(skb, &sk->sk_receive_queue);
+			__kfree_skb(skb);
+		}
+	}
+	/*
+		设置带外数据序号以及标记，以便后续根据标志作相应处理。
+	*/
+	tp->urg_data = TCP_URG_NOTYET;
+	tp->urg_seq = ptr;
+
+	/* Disable header prediction. 
+		由于接收到了带外数据，禁止下次首部预测。	
+	*/
+	tp->pred_flags = 0;
+}
+\end{minted}
+		\subsubsection{\mintinline{C}{tcp\_urg}}
+			\label{TCPUrgent:tcp_urg}
+\begin{minted}[linenos]{C}
+/*
+Location:
+
+	net/ipv4/tcp_input.c
+
+Function:
+
+	This is the 'fast' part of urgent handling. 
+
+Parameter:
+
+	sk:传输控制块
+	skb:缓存块
+	th:TCP首部
+*/
+static void tcp_urg(struct sock *sk, struct sk_buff *skb, const struct tcphdr *th)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+
+	/* Check if we get a new urgent pointer - normally not. 
+		检查带外数据偏移量是否正常。
+	*/
+	if (th->urg)
+		tcp_check_urg(sk, th);
+
+	/* Do we wait for any urgent data? - normally not... */
+	if (tp->urg_data == TCP_URG_NOTYET) {
+		u32 ptr = tp->urg_seq - ntohl(th->seq) + (th->doff * 4) -
+			  th->syn;
+
+		/* Is the urgent pointer pointing into this packet? */
+		if (ptr < skb->len) {
+			u8 tmp;
+			if (skb_copy_bits(skb, ptr, &tmp, 1))
+				BUG();
+			/*
+				设置TCP_URG_VALID标志表示用户进程可以读取，然后通知
+				用户进程读取。
+			*/
+			tp->urg_data = TCP_URG_VALID | tmp;
+			if (!sock_flag(sk, SOCK_DEAD))
+				sk->sk_data_ready(sk);
+		}
+	}
+}
+\end{minted}	
+	\subsection{\mintinline{c}{tcp_fin_time}}
+		计算等待接收FIN的超时时间。超时时间至少为$\frac{7}{2}$倍的rto。
 \begin{minted}[linenos]{c}
 static inline int tcp_fin_time(const struct sock *sk)
 {
