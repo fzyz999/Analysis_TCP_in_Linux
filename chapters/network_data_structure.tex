@@ -1258,8 +1258,8 @@ struct tcp_sock {
                  * were acked.
                  */
     u32 segs_in;    /* RFC4898 tcpEStatsPerfSegsIn
-                 * total number of segments in.
-                 */
+                 	* total number of segments in.
+                 	*/
     u32 rcv_nxt;    /* 下一个待接收的字节号     */
     u32 copied_seq; /* Head of yet unread data      */
     u32 rcv_wup;    /* rcv_nxt on last window update sent   */
@@ -1511,24 +1511,25 @@ struct tcp_request_sock {
 };
 \end{minted}
         \subsection{\mintinline{C}{tcp_skb_cb}}
-\label{sec:tcp_skb_cb}
+			\label{sec:tcp_skb_cb}
 
-在\ref{sec:sk_buff}中，我们分析过\mintinline{c}{cb}。在这一节中，我们将看到
-TCP层具体是如何使用这个控制缓冲区(Control Buffer)的。
+			在\ref{sec:sk_buff}中，我们分析过\mintinline{c}{cb}。该结构是TCP层在SKB区的
+			私有信息控制块。对这个私有信息控制块的赋值一般在本层接收到段或发送段之前进行。
+			在这一节中，我们将看到TCP层具体是如何使用这个控制缓冲区(Control Buffer)的。
 
             \subsubsection{TCP\_SKB\_CB}
-\label{subsec:tcp_skb_cb}
+				\label{subsec:tcp_skb_cb}
 
-该宏用于访问给定的\mintinline{c}{sk_buff}的控制缓冲区的变量。在后续的章节中，
-可以在很多函数中看到它的身影。该宏的定义如下：
+			在TCP层，用该宏访问给定的\mintinline{c}{sk_buff}的控制缓冲区的变量。在后续的章节中，
+			可以在很多函数中看到它的身影。该宏的定义如下：
 
 \begin{minted}[linenos]{c}
 #define TCP_SKB_CB(__skb)       ((struct tcp_skb_cb *)&((__skb)->cb[0]))
 \end{minted}
 
-可以看到，该宏实际上是将\mintinline{c}{cb}的指针强制转型成\mintinline{c}{tcp_skb_cb}
-结构体的指针。也就是说，TCP对于控制缓冲区的使用，可以从\mintinline{c}{tcp_skb_cb}
-的定义分析出来。
+			可以看到，该宏实际上是将\mintinline{c}{cb}的指针强制转型成\mintinline{c}{tcp_skb_cb}
+			结构体的指针。也就是说，TCP对于控制缓冲区的使用，可以从\mintinline{c}{tcp_skb_cb}
+			的定义分析出来。
 
 \subsubsection{tcp\_skb\_cb结构体}
 \label{subsec:tcp_skb_sb_structure}

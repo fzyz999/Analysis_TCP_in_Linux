@@ -59,14 +59,24 @@ int tcp_v4_rcv(struct sk_buff *skb)
 
 	/* Count it even if it's bad */
 	TCP_INC_STATS_BH(net, TCP_MIB_INSEGS);
-
+	/*
+		如果TCP段在传输过程中被分片了，则到达本地后会在IP层重新组装。
+		组装完成后，报文分片都存储在链表中。在此，需把存储在分片中的报文
+		复制到SKB的线性存储区域中。如果发生异常，则丢弃该报文。
+	*/
 	if (!pskb_may_pull(skb, sizeof(struct tcphdr)))
 		goto discard_it;
-
+	/*得到相关报文的头部*/
 	th = tcp_hdr(skb);
-
+	/*
+		如果TCP的首部长度小于不带数据的TCP的首部长度，则说明TCP数据异常。
+		统计相关信息后，丢弃。
+	*/
 	if (th->doff < sizeof(struct tcphdr) / 4)
 		goto bad_packet;
+	/*
+		检测整个TCP段长度和TCP首部长度是否正常，如有异常，则丢弃。
+	*/	
 	if (!pskb_may_pull(skb, th->doff * 4))
 		goto discard_it;
 
@@ -74,11 +84,16 @@ int tcp_v4_rcv(struct sk_buff *skb)
 	 * Packet length and doff are validated by header prediction,
 	 * provided case of th->doff==0 is eliminated.
 	 * So, we defer the checks. */
-
+	/*
+		验证TCP首部中的校验和，如校验和有误，则说明报文已损坏，统计相关信息后丢弃。
+	*/
 	if (skb_checksum_init(skb, IPPROTO_TCP, inet_compute_pseudo))
 		goto csum_error;
 \end{minted}
 
+	接下来，根据TCP首部中的信息来设置TCP控制块中的值，因为TCP首部中的值都是网络字节序
+	的，为了便于后续处理直接访问TCP首部字段，在此将这些值转换为本机字节序后存储在TCP的
+	私有控制块中。
 \begin{minted}[linenos]{C}
 	th = tcp_hdr(skb);
 	iph = ip_hdr(skb);
@@ -97,16 +112,27 @@ int tcp_v4_rcv(struct sk_buff *skb)
 	TCP_SKB_CB(skb)->tcp_tw_isn = 0;
 	TCP_SKB_CB(skb)->ip_dsfield = ipv4_get_dsfield(iph);
 	TCP_SKB_CB(skb)->sacked	 = 0;
-
+\end{minted}
+	
+	接下来调用\mintinline{C}{__inet_lookup}在ehash或bhash散列表中根据地址和端口来查找
+	传输控制块。如果在ehash中找到，则表示已经经历了三次握手并且已建立了连接，可以进行正常
+	的通信。如果在bhash中找到，则表示已经绑定已经绑定了端口，处于侦听状态。如果在两个散列表中
+	都不查找不到，说明此时对应的传输控制块还没有创建，跳转到\mintinline{C}{no_tcp_socket}
+	处处理。
+\begin{minted}[linenos]{C}
 lookup:
 	sk = __inet_lookup_skb(&tcp_hashinfo, skb, th->source, th->dest);
 	if (!sk)
 		goto no_tcp_socket;
-
+\end{minted}
+	
+	接下来继续处理。
+\begin{minted}[linenos]{C}
 process:
+	//如果是TIME_WAIT状态，就跳转到相应位置处理。
 	if (sk->sk_state == TCP_TIME_WAIT)
 		goto do_time_wait;
-
+	//NEW_SYN_RECV状态,???
 	if (sk->sk_state == TCP_NEW_SYN_RECV) {
 		struct request_sock *req = inet_reqsk(sk);
 		struct sock *nsk;
@@ -140,31 +166,42 @@ process:
 		NET_INC_STATS_BH(net, LINUX_MIB_TCPMINTTLDROP);
 		goto discard_and_relse;
 	}
-
+\end{minted}
+	继续处理。
+\begin{minted}[linenos]{C}
+	//查找IPsec数据库，如果查找失败，进行相应处理.
 	if (!xfrm4_policy_check(sk, XFRM_POLICY_IN, skb))
 		goto discard_and_relse;
-
+	//md5相关
 	if (tcp_v4_inbound_md5_hash(sk, skb))
 		goto discard_and_relse;
 
 	nf_reset(skb);
-
+	//过滤器
 	if (sk_filter(sk, skb))
 		goto discard_and_relse;
-
+	/*
+		设置SKB的dev为NULL，这是因为现在已经到了传输层，此时dev
+		已经不再具有意义。
+	*/
 	skb->dev = NULL;
-
+	/*LISTEN状态*/
 	if (sk->sk_state == TCP_LISTEN) {
 		ret = tcp_v4_do_rcv(sk, skb);
 		goto put_and_return;
 	}
 
 	sk_incoming_cpu_update(sk);
-
+	/*
+		在接收TCP段之前，需要对传输控制块加锁，以同步对传输控制块
+		接收队列的访问。
+	*/
 	bh_lock_sock_nested(sk);
 	tcp_sk(sk)->segs_in += max_t(u16, 1, skb_shinfo(skb)->gso_segs);
 	ret = 0;
+	/*进程此时没有访问传输控制块*/
 	if (!sock_owned_by_user(sk)) {
+		/*prequeue可读取*/
 		if (!tcp_prequeue(sk, skb))
 			ret = tcp_v4_do_rcv(sk, skb);
 	} else if (unlikely(sk_add_backlog(sk, skb,
@@ -173,13 +210,18 @@ process:
 		NET_INC_STATS_BH(net, LINUX_MIB_TCPBACKLOGDROP);
 		goto discard_and_relse;
 	}
+	//解锁。
 	bh_unlock_sock(sk);
+\end{minted}
 
+\begin{minted}[linenos]{C}
 put_and_return:
 	sock_put(sk);
 
 	return ret;
-
+/*
+	处理没有创建传输控制块收到报文，校验错误，坏包的情况，给对端发送RST报文。
+*/
 no_tcp_socket:
 	if (!xfrm4_policy_check(NULL, XFRM_POLICY_IN, skb))
 		goto discard_it;
@@ -192,7 +234,9 @@ bad_packet:
 	} else {
 		tcp_v4_send_reset(NULL, skb);
 	}
-
+/*
+	丢弃数据包。	
+*/
 discard_it:
 	/* Discard frame. */
 	kfree_skb(skb);
@@ -201,7 +245,7 @@ discard_it:
 discard_and_relse:
 	sock_put(sk);
 	goto discard_it;
-
+/*处理TIME_WAIT状态*/
 do_time_wait:
 	if (!xfrm4_policy_check(NULL, XFRM_POLICY_IN, skb)) {
 		inet_twsk_put(inet_twsk(sk));
@@ -213,25 +257,26 @@ do_time_wait:
 		goto csum_error;
 	}
 	switch (tcp_timewait_state_process(inet_twsk(sk), skb, th)) {
-	case TCP_TW_SYN: {
-		struct sock *sk2 = inet_lookup_listener(dev_net(skb->dev),
-							&tcp_hashinfo,
-							iph->saddr, th->source,
-							iph->daddr, th->dest,
-							inet_iif(skb));
-		if (sk2) {
-			inet_twsk_deschedule_put(inet_twsk(sk));
-			sk = sk2;
-			goto process;
+		case TCP_TW_SYN: {
+			struct sock *sk2 = inet_lookup_listener(dev_net(skb->dev),
+								&tcp_hashinfo,
+								iph->saddr, th->source,
+								iph->daddr, th->dest,
+								inet_iif(skb));
+			if (sk2) {
+				inet_twsk_deschedule_put(inet_twsk(sk));
+				sk = sk2;
+				goto process;
+			}
+			/* Fall through to ACK */
 		}
-		/* Fall through to ACK */
-	}
-	case TCP_TW_ACK:
-		tcp_v4_timewait_ack(sk, skb);
-		break;
-	case TCP_TW_RST:
-		goto no_tcp_socket;
-	case TCP_TW_SUCCESS:;
+		case TCP_TW_ACK:
+			tcp_v4_timewait_ack(sk, skb);
+			break;
+		case TCP_TW_RST:
+			goto no_tcp_socket;
+		case TCP_TW_SUCCESS:
+			;
 	}
 	goto discard_it;
 }

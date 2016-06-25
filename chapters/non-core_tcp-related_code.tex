@@ -421,9 +421,7 @@ high：允许所有tcp sockets用于排队缓冲数据报的页面量。(如果�
 缺省值为0
 这个开关可以启动对于在RFC1337中描述的"tcp 的time-wait暗杀危机"问题的修复。启用后，内核将丢弃那些发往time-wait状态TCP套接字的RST 包.
 
-\item[tcp\_low\_latency]  BOOLEAN,
-缺省值为0
-允许 TCP/IP 栈适应在高吞吐量情况下低延时的情况；这个选项一般情形是的禁用。(但在构建Beowulf 集群的时候,打开它很有帮助)
+\item[tcp\_low\_latency]	BOOLEAN,缺省值为0。该段的英文阐述如下：If set, the TCP stack makes decisions that prefer lower latency as opposed to higher throughput. By default, this option is not set meaning that higher throughput is preferred. An example of an application where this default should be changed would be a Beowulf compute cluster. 可以看出该选项在设置的时候主要是用于高吞吐量的环境，而设置之后，则是主要用于低延时的环境。这个选项一般情形是的禁用，但在构建Beowulf 集群(超算)的时候,打开它很有帮助。
 
 \item[tcp\_westwood] BOOLEAN,
 缺省值为0
