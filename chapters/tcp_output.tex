@@ -3,7 +3,8 @@
 
 \minitoc
 
-\section{\mintinline{c}{tcp_sendmsg}}
+\section{数据发送接口}
+\subsection{\mintinline{c}{tcp_sendmsg}}
 使用TCP发送数据的大部分工作都是在\mintinline{c}{tcp_sendmsg}函数中实现的。
 
 \begin{minted}[linenos]{c}
@@ -273,10 +274,212 @@ out_err:
 }
 \end{minted}
 
-\section{tcp\_transmit\_skb}
-
+\subsection{\mintinline{c}{tcp_sendmsg_fastopen}}
+如果启用了Fast Open，则会在这里分配一个\mintinline{c}{tcp_fastopen_request}结构体，
+并将用户消息和大小填写到对应的字段上。
 \begin{minted}[linenos]{c}
+static int tcp_sendmsg_fastopen(struct sock *sk, struct msghdr *msg,
+                                int *copied, size_t size)
+{
+        struct tcp_sock *tp = tcp_sk(sk);
+        int err, flags;
 
+        /* 如果没有开启该功能，返回错误值 */
+        if (!(sysctl_tcp_fastopen & TFO_CLIENT_ENABLE))
+                return -EOPNOTSUPP;
+        /* 如果已经有要发送的数据了，返回错误值 */
+        if (tp->fastopen_req)
+                return -EALREADY; /* Another Fast Open is in progress */
+
+        /* 分配空间并将用户数据块赋值给相应字段 */
+        tp->fastopen_req = kzalloc(sizeof(struct tcp_fastopen_request),
+                                   sk->sk_allocation);
+        if (unlikely(!tp->fastopen_req))
+                return -ENOBUFS;
+        tp->fastopen_req->data = msg;
+        tp->fastopen_req->size = size;
+
+        flags = (msg->msg_flags & MSG_DONTWAIT) ? O_NONBLOCK : 0;
+        /* 由于fast open时，连接还未建立，因此，这里直接调用了下面的
+         * 函数建立连接。这样数据就可以在连接建立的过程中被发送出去了。
+         */
+        err = __inet_stream_connect(sk->sk_socket, msg->msg_name,
+                                    msg->msg_namelen, flags);
+        *copied = tp->fastopen_req->copied;
+        tcp_free_fastopen_req(tp);
+        return err;
+}
+\end{minted}
+在连接结束后，释放Fast Open请求信息结构体，完成了Fast Open过程。
+
+\section{输出到IP层}
+\subsection{tcp\_transmit\_skb}
+真正的发送操作是在\mintinline{c}{tcp_transmit_skb}中完成的。该函数最主要的工作是
+构建TCP的首部，并将包交付给IP层。由于数据报需要等到ACK后才能释放，
+所以需要在发送队列中长期保留一份SKB的备份。
+\begin{minted}[linenos]{c}
+/* Location: net/ipv4/tcp_output.c
+ *
+ * Parameter:
+ *     sk: 套接字
+ *     skb: 要发送的包
+ *     clone_it: 克隆或复制
+ *     gpf_mask: 内存分配方式
+ */
+static int tcp_transmit_skb(struct sock *sk, struct sk_buff *skb, int clone_it,
+                            gfp_t gfp_mask)
+{
+        const struct inet_connection_sock *icsk = inet_csk(sk);
+        struct inet_sock *inet;
+        struct tcp_sock *tp;
+        struct tcp_skb_cb *tcb;
+        struct tcp_out_options opts;
+        unsigned int tcp_options_size, tcp_header_size;
+        struct tcp_md5sig_key *md5;
+        struct tcphdr *th;
+        int err;
+
+        BUG_ON(!skb || !tcp_skb_pcount(skb));
+
+        if (clone_it) {
+                skb_mstamp_get(&skb->skb_mstamp);
+
+                /* 这里收到的SKB可能是原始SKB的克隆，也可能是
+                 * 来自重传引擎的一份拷贝。
+                 */
+                if (unlikely(skb_cloned(skb)))
+                        skb = pskb_copy(skb, gfp_mask);
+                else
+                        skb = skb_clone(skb, gfp_mask);
+                if (unlikely(!skb))
+                        return -ENOBUFS;
+        }
+\end{minted}
+之后正是开始构建TCP的头部。首先判断该TCP包是否是一个SYN包。如果是，
+则调用\mintinline{c}{tcp_syn_options}构建相应的选项。否则，调用
+\mintinline{c}{tcp_established_options}来构建相应的选项。注意，
+这里仅仅是计算出来具体的选项及其大小，并没有形成最终TCP包中选项的格式。
+\begin{minted}[linenos]{c}
+        inet = inet_sk(sk);
+        tp = tcp_sk(sk);
+        tcb = TCP_SKB_CB(skb);
+        memset(&opts, 0, sizeof(opts));
+
+        if (unlikely(tcb->tcp_flags & TCPHDR_SYN))
+                tcp_options_size = tcp_syn_options(sk, skb, &opts, &md5);
+        else
+                tcp_options_size = tcp_established_options(sk, skb, &opts,
+                                                           &md5);
+\end{minted}
+根据选项的大小，可以进一步推算出TCP头部的大小。之后，调用相关函数在skb头部为TCP头部
+流出空间。
+\begin{minted}[linenos]{c}
+        tcp_header_size = tcp_options_size + sizeof(struct tcphdr);
+
+        /* if no packet is in qdisc/device queue, then allow XPS to select
+         * another queue. We can be called from tcp_tsq_handler()
+         * which holds one reference to sk_wmem_alloc.
+         *
+         * TODO: Ideally, in-flight pure ACK packets should not matter here.
+         * One way to get this would be to set skb->truesize = 2 on them.
+         */
+skb->ooo_okay = sk_wmem_alloc_get(sk) < SKB_TRUESIZE(1);
+
+        skb_push(skb, tcp_header_size);
+        skb_reset_transport_header(skb);
+
+        skb_orphan(skb);
+        skb->sk = sk;
+        skb->destructor = skb_is_tcp_pure_ack(skb) ? sock_wfree : tcp_wfree;
+        skb_set_hash_from_sk(skb, sk);
+        atomic_add(skb->truesize, &sk->sk_wmem_alloc);
+\end{minted}
+然后，就进入到了真正构建TCP头部并计算校验和的时候了。
+\begin{minted}[linenos]{c}
+        /* Build TCP header and checksum it. */
+        th = tcp_hdr(skb);
+        th->source              = inet->inet_sport;
+        th->dest                = inet->inet_dport;
+        th->seq                 = htonl(tcb->seq);
+        th->ack_seq             = htonl(tp->rcv_nxt);
+        *(((__be16 *)th) + 6)   = htons(((tcp_header_size >> 2) << 12) |
+                                        tcb->tcp_flags);
+
+        if (unlikely(tcb->tcp_flags & TCPHDR_SYN)) {
+                /* RFC1323: The window in SYN & SYN/ACK segments
+                 * is never scaled.
+                 */
+                th->window      = htons(min(tp->rcv_wnd, 65535U));
+        } else {
+                th->window      = htons(tcp_select_window(sk));
+        }
+        th->check               = 0;
+        th->urg_ptr             = 0;
+
+        /* The urg_mode check is necessary during a below snd_una win probe */
+        if (unlikely(tcp_urg_mode(tp) && before(tcb->seq, tp->snd_up))) {
+                if (before(tp->snd_up, tcb->seq + 0x10000)) {
+                        th->urg_ptr = htons(tp->snd_up - tcb->seq);
+                        th->urg = 1;
+                } else if (after(tcb->seq + 0xFFFF, tp->snd_nxt)) {
+                        th->urg_ptr = htons(0xFFFF);
+                        th->urg = 1;
+                }
+        }
+
+        /* 在写完首部后，调用函数将TCP选项写入 */
+        tcp_options_write((__be32 *)(th + 1), tp, &opts);
+skb_shinfo(skb)->gso_type = sk->sk_gso_type;
+        if (likely((tcb->tcp_flags & TCPHDR_SYN) == 0))
+                tcp_ecn_send(sk, skb, tcp_header_size);
+
+#ifdef CONFIG_TCP_MD5SIG
+        /* Calculate the MD5 hash, as we have all we need now */
+        if (md5) {
+                sk_nocaps_add(sk, NETIF_F_GSO_MASK);
+                tp->af_specific->calc_md5_hash(opts.hash_location,
+                                               md5, sk, skb);
+        }
+#endif
+\end{minted}
+最后，总算是进入到了要将包发给IP层的地方了。
+\begin{minted}[linenos]{c}
+        icsk->icsk_af_ops->send_check(sk, skb);
+
+        /* 触发相关的TCP事件，这些会被用于拥塞控制算法。 */
+        if (likely(tcb->tcp_flags & TCPHDR_ACK))
+                tcp_event_ack_sent(sk, tcp_skb_pcount(skb));
+
+        if (skb->len != tcp_header_size)
+                tcp_event_data_sent(tp, sk);
+
+        if (after(tcb->end_seq, tp->snd_nxt) || tcb->seq == tcb->end_seq)
+                TCP_ADD_STATS(sock_net(sk), TCP_MIB_OUTSEGS,
+                              tcp_skb_pcount(skb));
+
+        tp->segs_out += tcp_skb_pcount(skb);
+        /* OK, its time to fill skb_shinfo(skb)->gso_{segs|size} */
+        skb_shinfo(skb)->gso_segs = tcp_skb_pcount(skb);
+        skb_shinfo(skb)->gso_size = tcp_skb_mss(skb);
+
+        /* Our usage of tstamp should remain private */
+        skb->tstamp.tv64 = 0;
+
+        /* Cleanup our debris for IP stacks */
+        memset(skb->cb, 0, max(sizeof(struct inet_skb_parm),
+                               sizeof(struct inet6_skb_parm)));
+
+        /* 在这里，我们将包加入到IP层的发送队列 */
+        err = icsk->icsk_af_ops->queue_xmit(sk, skb, &inet->cork.fl);
+
+        if (likely(err <= 0))
+                return err;
+
+        /* 如果发送了丢包（如被主动队列管理丢弃），那么进入到拥塞控制状态。 */
+        tcp_enter_cwr(sk);
+
+        return net_xmit_eval(err);
+}
 \end{minted}
 
 \section{tcp\_select\_window(struct sk\_buff *skb)}
