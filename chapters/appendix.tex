@@ -311,19 +311,19 @@ struct {
 			冒号后面表示相应字段的宽度(二进制宽度)，即不一定非得是1位。字段被声明为\mintinline{C}{unsigned int}类型，以确保它们是无符号量。
 
 			当然我们需要注意，机器是分大端和小端存储的。因此，我们在选择外部定义数据的情况下爱，必须仔细考虑那一端优先的问题。同时，字段不是数组，并且没有地址，因此不能对它们使用\mintinline{C}{&}运算符。	
-	\section{GCC}
-		\subsection{\mintinline{C}{__attribute__}}
-			GNU C的一大特色就是\mintinline{C}{__attribute__}机制。\mintinline{C}{__attribute__}可以设置函数属性（Function Attribute）、变量属性（Variable Attribute）和类型属性（Type Attribute）。
+\section{GCC}
+	\subsection{\mintinline{C}{__attribute__}}
+		GNU C的一大特色就是\mintinline{C}{__attribute__}机制。\mintinline{C}{__attribute__}可以设置函数属性（Function Attribute）、变量属性（Variable Attribute）和类型属性（Type Attribute）。
 
-			\mintinline{C}{__attribute__}的书写特征是：\mintinline{C}{__attribute__}前后都有两个下划线，并切后面会紧跟一对原括弧，括弧里面是相应的\mintinline{C}{__attribute__}参数。
+		\mintinline{C}{__attribute__}的书写特征是：\mintinline{C}{__attribute__}前后都有两个下划线，并切后面会紧跟一对原括弧，括弧里面是相应的\mintinline{C}{__attribute__}参数。
 
-			\mintinline{C}{__attribute__}的语法格式为：\mintinline{C}{__attribute__}((attribute-list))
+		\mintinline{C}{__attribute__}的语法格式为：\mintinline{C}{__attribute__}((attribute-list))
 
-			\mintinline{C}{__attribute__}的位置约束为：放于声明的尾部“；”之前。
-			参考博客：http://www.cnblogs.com/astwish/p/3460618.html
-			关键字\mintinline{C}{__attribute__}也可以对结构体（struct）或共用体（union）进行属性设置。大致有六个参数值可以被设定，即：aligned, packed, \mintinline{C}{transparent_union}, unused, deprecated 和 \mintinline{C}{may_alias} 。
+		\mintinline{C}{__attribute__}的位置约束为：放于声明的尾部“；”之前。
+		参考博客：http://www.cnblogs.com/astwish/p/3460618.html
+		关键字\mintinline{C}{__attribute__}也可以对结构体（struct）或共用体（union）进行属性设置。大致有六个参数值可以被设定，即：aligned, packed, \mintinline{C}{transparent_union}, unused, deprecated 和 \mintinline{C}{may_alias} 。
 
-			在使用\mintinline{C}{__attribute__}参数时，你也可以在参数的前后都加上两个下划线，例如，使用\mintinline{C}{__aligned__}而不是aligned ，这样，你就可以在相应的头文件里使用它而不用关心头文件里是否有重名的宏定义。aligned (alignment)该属性设定一个指定大小的对齐格式（以字节 为单位）。		
+		在使用\mintinline{C}{__attribute__}参数时，你也可以在参数的前后都加上两个下划线，例如，使用\mintinline{C}{__aligned__}而不是aligned ，这样，你就可以在相应的头文件里使用它而不用关心头文件里是否有重名的宏定义。aligned (alignment)该属性设定一个指定大小的对齐格式（以字节 为单位）。		
 
 			\subsubsection{设置变量属性}
 				下面的声明将强制编译器确保（尽它所能）变量类型为\mintinline{C}{int32_t}的变量在分配空间时采用8字节对齐方式。
@@ -353,7 +353,7 @@ struct S {
 
 			\subsubsection{设置函数属性}
 	\subsection{分支预测优化}
-
+		\label{GCC:likely && unlikely}
 		现代处理器均为流水线结构。而分支语句可能导致流水线断流。因此，很多处理器均有分支预测的功能。
 然而，分支预测失败所导致的惩罚也是相对高昂的。为了提升性能，Linux的很多分支判断中都使用了
 \mintinline{c}{likely()}和\mintinline{c}{unlikely()}这组宏定义来人工指示编译器，哪些
@@ -380,6 +380,12 @@ struct S {
 # define unlikely(x)    __builtin_expect(!!(x), 0)
 \end{minted}
 其中\mintinline{c}{__builtin_expect}是GCC的内置函数，用于指示编译器，该条件语句最可能的结果是什么。
+
+		\textcolor{blue}{调用位置}:
+
+		\begin{enumerate}
+			\item[1]		\ref{ServerSendSYN+ACK:tcp_make_synack}中的tcp\_make\_synack调用。
+		\end{enumerate}
 
 	\section{Sparse}
 
