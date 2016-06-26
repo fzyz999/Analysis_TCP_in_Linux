@@ -629,7 +629,7 @@ max：用于TCP socket接收缓冲的内存最大值。该值不会影响 net.co
 　　                        4）网络上是不是把我的数据包给复制了。
 \end{enumerate}
 	\subsection{函数宏}
-		\subsubsection{before()和after()}
+		\subsubsection{\mintinline{C}{before & after}}
 			在一些需要判断序号前后的地方出现了\mintinline{c}{before()}和\mintinline{c}{after()}
 			这两个函数。这两个函数的定义如下
 \begin{minted}[linenos]{c}
@@ -644,6 +644,15 @@ static inline bool before(__u32 seq1, __u32 seq2)
 \end{minted}
 		可以看到，这两个函数实际上就是将两个数直接相减。之所以要单独弄个函数应该是为了避免强制转型
 		造成影响。序号都是32位无符号整型。
+		\subsubsection{between}
+
+\begin{minted}[linenos]{C}
+/* is s2<=s1<=s3 ? */
+static inline bool between(__u32 seq1, __u32 seq2, __u32 seq3)
+{
+	return seq3 - seq2 >= seq1 - seq2;
+}
+\end{minted}
 
 	\subsection{TCP CheckSum}
 		\subsubsection{\mintinline{C}{tcp_checksum_complete}}
@@ -800,7 +809,8 @@ static void tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags)
 		\textcolor{blue}{调用位置}:
 
 			\begin{enumerate}
-			\item[1]		\ref{Client:tcp_connect}的tcp\_connect中调用。
+				\item[1]		\ref{Client:tcp_connect}中的tcp\_connect调用。
+				\item[2]		\ref{Client:tcp_send_ack}中的tcp\_send\_ack调用。
 			\end{enumerate}
 
 	\subsection{\mintinline{C}{TCP Options}}
@@ -911,149 +921,149 @@ void tcp_parse_options(const struct sk_buff *skb,
 		       struct tcp_options_received *opt_rx, int estab,
 		       struct tcp_fastopen_cookie *foc)
 {
-	const unsigned char *ptr;
-	const struct tcphdr *th = tcp_hdr(skb);
-	/*选项部分长度*/
-	int length = (th->doff * 4) - sizeof(struct tcphdr);
-	/*得到选项的首部*/
-	ptr = (const unsigned char *)(th + 1);
-	/*标记没有看到时间戳*/	
-	opt_rx->saw_tstamp = 0;
+const unsigned char *ptr;
+const struct tcphdr *th = tcp_hdr(skb);
+/*选项部分长度*/
+int length = (th->doff * 4) - sizeof(struct tcphdr);
+/*得到选项的首部*/
+ptr = (const unsigned char *)(th + 1);
+/*标记没有看到时间戳*/	
+opt_rx->saw_tstamp = 0;
 
-	while (length > 0) {
-		/*选项的类型*/
-		int opcode = *ptr++;
-		/*选项长度的大小*/		
-		int opsize;
+while (length > 0) {
+	/*选项的类型*/
+	int opcode = *ptr++;
+	/*选项长度的大小*/		
+	int opsize;
 
+	switch (opcode) {
+	//End of options
+	case TCPOPT_EOL:
+		return;
+	//Padding			
+	case TCPOPT_NOP:	/* Ref: RFC 793 section 3.1 */
+		length--;
+		continue;
+	default:
+		/*
+			得到选项的长度，选项长度不可能小于2,
+			具体参见上面的宏定义说明。
+		*/
+		opsize = *ptr++;
+		if (opsize < 2) 	/* "silly options" */
+			return;
+		/*也不可能大于length*/
+		if (opsize > length)
+			return;	/* don't parse partial options */
 		switch (opcode) {
-			//End of options
-			case TCPOPT_EOL:
-				return;
-			//Padding			
-			case TCPOPT_NOP:	/* Ref: RFC 793 section 3.1 */
-				length--;
-				continue;
-			default:
-				/*
-					得到选项的长度，选项长度不可能小于2,
-					具体参见上面的宏定义说明。
-				*/
-				opsize = *ptr++;
-				if (opsize < 2) 	/* "silly options" */
-					return;
-				/*也不可能大于length*/
-				if (opsize > length)
-					return;	/* don't parse partial options */
-				switch (opcode) {
-					/*最大报文段长度,只用于最初的协商阶段*/
-					case TCPOPT_MSS:
-						if (opsize == TCPOLEN_MSS && th->syn && !estab) {
-							/*取最大段长度,如果为0,那怎么办呢？这里似乎并没有处理*/
-							u16 in_mss = get_unaligned_be16(ptr);
-							if (in_mss) {
-								/*
-									将最大段长度设置为选项中和用户自身的较小值。
-								*/
-								if (opt_rx->user_mss &&
-									opt_rx->user_mss < in_mss)
-									in_mss = opt_rx->user_mss;
-								opt_rx->mss_clamp = in_mss;
-							}
-						}
-						break;
-					/*窗口扩大因子选项，也只能出现在SYN且未建立的情况下，并且支持该选项*/
-					case TCPOPT_WINDOW:
-						if (opsize == TCPOLEN_WINDOW && th->syn &&
-							!estab && sysctl_tcp_window_scaling) {
-							/*取位移数*/
-							__u8 snd_wscale = *(__u8 *)ptr;
-							/*将表示包含窗口扩大因子的选项置位*/
-							opt_rx->wscale_ok = 1;
-							/*大于14则警告，并设重新设置为14.*/
-							if (snd_wscale > 14) {
-								net_info_ratelimited("%s: Illegal window scaling value %d >14 received\n",
-											 __func__,
-											 snd_wscale);
-								snd_wscale = 14;
-							}
-							opt_rx->snd_wscale = snd_wscale;
-						}
-						break;
-					/*时间戳选项，满足条件为：在建立的时候或者未建立但支持时间戳选项*/
-					case TCPOPT_TIMESTAMP:
-						if ((opsize == TCPOLEN_TIMESTAMP) &&
-							((estab && opt_rx->tstamp_ok) ||
-							 (!estab && sysctl_tcp_timestamps))) {
-							/*看见时间戳*/							
-							opt_rx->saw_tstamp = 1;
-							/*time stamp value*/
-							opt_rx->rcv_tsval = get_unaligned_be32(ptr);
-							/*time stamp echo reply*/
-							opt_rx->rcv_tsecr = get_unaligned_be32(ptr + 4);
-						}
-						break;
-					/*SACK Permit，只能在syn并且未建立的时候使用*/
-					case TCPOPT_SACK_PERM:
-						if (opsize == TCPOLEN_SACK_PERM && th->syn &&
-							!estab && sysctl_tcp_sack) {
-							//标记看见
-							opt_rx->sack_ok = TCP_SACK_SEEN;
-							/*
-								将与SACK有关的字段清零dsack,eff_sacks,num_sacks
-							*/
-							tcp_sack_reset(opt_rx);
-						}
-						break;
-					/*表明有SACK*/
-					case TCPOPT_SACK:
+			/*最大报文段长度,只用于最初的协商阶段*/
+			case TCPOPT_MSS:
+				if (opsize == TCPOLEN_MSS && th->syn && !estab) {
+					/*取最大段长度,如果为0,那怎么办呢？这里似乎并没有处理*/
+					u16 in_mss = get_unaligned_be16(ptr);
+					if (in_mss) {
 						/*
-							TCPOLEN_SACK_BASE为2,TCPOLEN_SACK_PERBLOCK为8
-							因此，if语句的意思是，该选项包含kind、length以及
-							一个左右边界值对，且扣除kind和length字段之后，
-							nnegbei左右边界值对的大小整除，sack_ok为1表示
-							允许SACK.
+							将最大段长度设置为选项中和用户自身的较小值。
 						*/
-						if ((opsize >= (TCPOLEN_SACK_BASE + TCPOLEN_SACK_PERBLOCK)) &&
-						   !((opsize - TCPOLEN_SACK_BASE) % TCPOLEN_SACK_PERBLOCK) &&
-						   opt_rx->sack_ok) {
-							/*将sacked的值指向这些左右边界值对的起始处*/
-							TCP_SKB_CB(skb)->sacked = (ptr - 2) - (unsigned char *)th;
-						}
-						break;
-		#ifdef CONFIG_TCP_MD5SIG
-					case TCPOPT_MD5SIG:
-						/*
-						 * The MD5 Hash has already been
-						 * checked (see tcp_v{4,6}_do_rcv()).
-						 */
-						break;
-		#endif
-					/*快打开*/
-					case TCPOPT_FASTOPEN:
-						tcp_parse_fastopen_option(
-							opsize - TCPOLEN_FASTOPEN_BASE,
-							ptr, th->syn, foc, false);
-						break;
-					/*实验阶段的Fast Open，现在基本上已经成形了。*/
-					case TCPOPT_EXP:
-						/* Fast Open option shares code 254 using a
-						 * 16 bits magic number.
-						 */
-						if (opsize >= TCPOLEN_EXP_FASTOPEN_BASE &&
-							get_unaligned_be16(ptr) ==
-							TCPOPT_FASTOPEN_MAGIC)
-							tcp_parse_fastopen_option(opsize -
-								TCPOLEN_EXP_FASTOPEN_BASE,
-								ptr + 2, th->syn, foc, true);
-						break;
-
+						if (opt_rx->user_mss &&
+							opt_rx->user_mss < in_mss)
+							in_mss = opt_rx->user_mss;
+						opt_rx->mss_clamp = in_mss;
+					}
 				}
-				/*进入下一个循环，处理下一个选项*/
-				ptr += opsize-2;
-				length -= opsize;
+				break;
+			/*窗口扩大因子选项，也只能出现在SYN且未建立的情况下，并且支持该选项*/
+			case TCPOPT_WINDOW:
+				if (opsize == TCPOLEN_WINDOW && th->syn &&
+					!estab && sysctl_tcp_window_scaling) {
+					/*取位移数*/
+					__u8 snd_wscale = *(__u8 *)ptr;
+					/*将表示包含窗口扩大因子的选项置位*/
+					opt_rx->wscale_ok = 1;
+					/*大于14则警告，并设重新设置为14.*/
+					if (snd_wscale > 14) {
+						net_info_ratelimited("%s: Illegal window scaling value %d >14 received\n",
+									 __func__,
+									 snd_wscale);
+						snd_wscale = 14;
+					}
+					opt_rx->snd_wscale = snd_wscale;
+				}
+				break;
+			/*时间戳选项，满足条件为：在建立的时候或者未建立但支持时间戳选项*/
+			case TCPOPT_TIMESTAMP:
+				if ((opsize == TCPOLEN_TIMESTAMP) &&
+					((estab && opt_rx->tstamp_ok) ||
+					 (!estab && sysctl_tcp_timestamps))) {
+					/*看见时间戳*/							
+					opt_rx->saw_tstamp = 1;
+					/*time stamp value*/
+					opt_rx->rcv_tsval = get_unaligned_be32(ptr);
+					/*time stamp echo reply*/
+					opt_rx->rcv_tsecr = get_unaligned_be32(ptr + 4);
+				}
+				break;
+			/*SACK Permit，只能在syn并且未建立的时候使用*/
+			case TCPOPT_SACK_PERM:
+				if (opsize == TCPOLEN_SACK_PERM && th->syn &&
+					!estab && sysctl_tcp_sack) {
+					//标记看见
+					opt_rx->sack_ok = TCP_SACK_SEEN;
+					/*
+						将与SACK有关的字段清零dsack,eff_sacks,num_sacks
+					*/
+					tcp_sack_reset(opt_rx);
+				}
+				break;
+			/*表明有SACK*/
+			case TCPOPT_SACK:
+				/*
+					TCPOLEN_SACK_BASE为2,TCPOLEN_SACK_PERBLOCK为8
+					因此，if语句的意思是，该选项包含kind、length以及
+					一个左右边界值对，且扣除kind和length字段之后，
+					nnegbei左右边界值对的大小整除，sack_ok为1表示
+					允许SACK.
+				*/
+				if ((opsize >= (TCPOLEN_SACK_BASE + TCPOLEN_SACK_PERBLOCK)) &&
+				   !((opsize - TCPOLEN_SACK_BASE) % TCPOLEN_SACK_PERBLOCK) &&
+				   opt_rx->sack_ok) {
+					/*将sacked的值指向这些左右边界值对的起始处*/
+					TCP_SKB_CB(skb)->sacked = (ptr - 2) - (unsigned char *)th;
+				}
+				break;
+#ifdef CONFIG_TCP_MD5SIG
+			case TCPOPT_MD5SIG:
+				/*
+				 * The MD5 Hash has already been
+				 * checked (see tcp_v{4,6}_do_rcv()).
+				 */
+				break;
+#endif
+			/*快打开*/
+			case TCPOPT_FASTOPEN:
+				tcp_parse_fastopen_option(
+					opsize - TCPOLEN_FASTOPEN_BASE,
+					ptr, th->syn, foc, false);
+				break;
+			/*实验阶段的Fast Open，现在基本上已经成形了。*/
+			case TCPOPT_EXP:
+				/* Fast Open option shares code 254 using a
+				 * 16 bits magic number.
+				 */
+				if (opsize >= TCPOLEN_EXP_FASTOPEN_BASE &&
+					get_unaligned_be16(ptr) ==
+					TCPOPT_FASTOPEN_MAGIC)
+					tcp_parse_fastopen_option(opsize -
+						TCPOLEN_EXP_FASTOPEN_BASE,
+						ptr + 2, th->syn, foc, true);
+				break;
+
 		}
-	}
+		/*进入下一个循环，处理下一个选项*/
+		ptr += opsize-2;
+		length -= opsize;
+}
+}
 }
 \end{minted}
 		\textcolor{blue}{调用位置}:

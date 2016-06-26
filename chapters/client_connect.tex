@@ -527,7 +527,8 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
                         tp->rx_opt.tstamp_ok= 1;
                         tp->tcp_header_len =
                                 sizeof(struct tcphdr) + TCPOLEN_TSTAMP_ALIGNED;
-                        tp->advmss -= TCPOLEN_TSTAMP_ALIGNED;
+						/*减去选项长度*/                        
+						tp->advmss -= TCPOLEN_TSTAMP_ALIGNED;
                         tcp_store_ts_recent(tp);
                 } else {
                         tp->tcp_header_len = sizeof(struct tcphdr);
@@ -678,19 +679,20 @@ reset_and_undo:
 }
 \end{minted}
 
-\subsection{第三次握手——发送ACK包}
-\label{subsec:send_ack}
-    \subsubsection{基本调用关系}
-
-                \begin{figure}[htb]        
-                    \centering
-                    \includegraphics[width=\textwidth]  {images/Client:Send ACK.png}
-                \end{figure} 
-    
-    \subsubsection{tcp\_send\_ack}
-\label{subsubsec:tcp_send_ack}
-在\ref{subsec:recv_synack}分析的代码的最后，我们看到它调用了\mintinline{c}{tcp_send_ack()}来发送ACK包，
-从而实现第三次握手。
+	\subsection{第三次握手——发送ACK包}
+		\label{Client:send_ack}
+		\subsubsection{基本调用关系}
+		            \begin{figure}[htb]        
+		                \centering
+		                \includegraphics[width=\textwidth]  {images/Client:Send ACK.png}
+						\caption{Client:Send ACK}
+						\label{Client:Send ACK}
+		            \end{figure} 
+		
+		\subsubsection{tcp\_send\_ack}
+			\label{Client:tcp_send_ack}
+				在\ref{Client:Recv SYN+ACK}分析的代码的最后，我们看到它调用了\mintinline{c}{tcp_send_ack()}来发送ACK包，
+				从而实现第三次握手。
 
 \begin{minted}[linenos]{c}
 /* 
@@ -701,11 +703,13 @@ Location
 Function:
 
     This routine sends an ack and also updates the window.
+	该函数用于发送ACK，并更新窗口的大小 
 
 Parameter:
 
     sk:传输控制块
-该函数用于发送ACK，并更新窗口的大小 */
+
+*/
 void tcp_send_ack(struct sock *sk)
 {
         struct sk_buff *buff;
@@ -713,7 +717,7 @@ void tcp_send_ack(struct sock *sk)
         /* 如果当前的套接字已经被关闭了，那么直接返回。 */
         if (sk->sk_state == TCP_CLOSE)
                 return;
-        /*what does it using for?*/
+        /*拥塞避免*/
         tcp_ca_event(sk, CA_EVENT_NON_DELAYED_ACK);
 
         /* We are not putting this on the write queue, so
@@ -747,5 +751,7 @@ void tcp_send_ack(struct sock *sk)
         tcp_transmit_skb(sk, buff, 0, sk_gfp_atomic(sk, GFP_ATOMIC));
 }
 \end{minted}
+
+		关于tcp\_init\_nondata\_skb更多的内容请参见\ref{TCPInitialize:tcp_init_nondata_skb}。
 
 
