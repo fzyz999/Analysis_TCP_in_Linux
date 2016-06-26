@@ -13,6 +13,7 @@
 					\label{Server:Receive SYN}
                 \end{figure}       
             \subsubsection{\mintinline{C}{tcp_v4_do_rcv}}
+				\label{ServerReceiveSYN:tcp_v4_do_rcv}
                 在进行第一次握手的时候，TCP必然处于LISTEN状态。传输控制块接收处理的段都由\mintinline{C}{tcp_v4_do_rcv}来处理。
 \begin{minted}[linenos]{C}
 /*
@@ -21,6 +22,7 @@ Location:
 	/net/ipv4/tcp_ipv4.c
 
 Function:
+
 	The socket must have it's spinlock held when we get
 	here, unless it is a TCP_LISTEN socket.
 
@@ -39,11 +41,16 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
     struct sock *rsk;
 
     /*省略无关代码*/
-
+	/*基于伪首部累加和进行全包的校验和，判断包是否传输正确*/
     if (tcp_checksum_complete(skb))
         goto csum_err;
+\end{minted}
 
+		关于tcp\_checksum\_complete更多内容，请参见\ref{TCPCheckSum:tcp_checksum_complete}.
+
+\begin{minted}[linenos]{C}
     if (sk->sk_state == TCP_LISTEN) {
+		/*进行相应的cookie检查*/
         struct sock *nsk = tcp_v4_cookie_check(sk, skb);
 
         if (!nsk)
@@ -59,7 +66,10 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
         }
     } else
         sock_rps_save_rxhash(sk, skb);
+\end{minted}
 
+\begin{minted}[linenos]{C}
+	/*处理接收到的SYN段,返回1,表示处理错误*/
     if (tcp_rcv_state_process(sk, skb)) {
         rsk = sk;
         goto reset;
@@ -83,12 +93,6 @@ csum_err:
     goto discard;
 }
 \end{minted}
-
-                首先，程序先基于伪首部累加和进行全包的校验和，判断包是否传输正确。
-
-                其次，程序会进行相应的cookie检查。
-
-                最后，程序会继续调用\mintinline{C}{tcp_rcv_state_process}函数处理接收到的SYN段。
             
             \subsubsection{\mintinline{C}{tcp_v4_cookie_check}}
                 该函数如下：
@@ -100,7 +104,7 @@ Location
 
 Function
 
-	
+	cookie检查
 
 Parameter
 
@@ -119,9 +123,10 @@ static struct sock *tcp_v4_cookie_check(struct sock *sk, struct sk_buff *skb)
 }
 \end{minted}
 
-                一般情况下，当前linux内核都会定义\mintinline{C}{CONFIG_SYN_COOKIES}宏的，显然对于第一次握手的时候，接收到的确实是syn包，故而直接返回了sk。
+                显然对于第一次握手的时候，接收到的确实是syn包，故而直接返回了sk。
             \subsubsection{\mintinline{C}{tcp_rcv_state_process}}
-                该函数位于\mintinline{C}{/net/ipv4/tcp_input.c}中。与第一次握手相关的代码如下：
+				\label{Server:tcp_rcv_state_process}
+                与第一次握手相关的代码如下：
 
 \begin{minted}[linenos]{C}
 /*
@@ -150,8 +155,8 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
     struct request_sock *req;
     int queued = 0;
     bool acceptable;
-
-    tp->rx_opt.saw_tstamp = 0;  /*saw_tstamp 表示在最新的包上是否看到的时间戳选项*/
+	/*saw_tstamp 表示在最新的包上是否看到的时间戳选项*/
+    tp->rx_opt.saw_tstamp = 0;  
 
     switch (sk->sk_state) {
     /*省略无关代码*/
@@ -204,7 +209,7 @@ discard:
                 当然，如果收到的包的ack字段为1,那么由于此时链接还未建立，故该包无效，返回1,并且调用该函数的函数会发送reset包给对方。如果收到的是rst字段或者既有fin又有syn的字段，那就直接销毁，并且释放内存。
 
             \subsubsection{\mintinline{C}{tcp_v4_conn_request && tcp_conn_request}}
-
+				\label{Server:tcp_conn_request}
                 该函数如下：
 \begin{minted}[linenos]{C}
 /* why make two functions here?
@@ -250,7 +255,7 @@ Function:
 
 Parameter:
 
-	rsk_ops:请求控制块的函数接口?? what is the difference?
+	rsk_ops:请求控制块的函数接口
 	af_ops:TCP请求块的函数接口
 	sk:传输控制块
 	skb:传输控制块缓冲区
@@ -284,7 +289,8 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
             goto drop;
     }
 \end{minted}
-                首先，如果打开了SYNCOOKIE选项，并且SYN请求队列已满并且isn为0,然后通过函数\textbf{tcp\_syn\_flood\_action}判断是否需要发送syncookie。如果没有启用syncookie的话，就会返回false，此时不能接收新的SYN请求，会将所收到的包丢掉。
+                如果打开了SYNCOOKIE选项，并且SYN请求队列已满并且isn为0,然后通过函数\textbf{tcp\_syn\_flood\_action}判断是否需要发送syncookie。如果没有启用syncookie的话，就会返回false，此时不能接收新的SYN请求，会将所收到的包丢掉。
+
 \begin{minted}[linenos]{C}
     /* Accept backlog is full. If we have already queued enough
      * of warm entries in syn queue, drop request. It is better than
@@ -299,7 +305,7 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
 
         \textbf{warm entries???}               
         
-        如果连接队列长度已经达到上限且SYN请求队列中至少有一个握手过程中没有重传过段，则丢弃当前请求。
+        如果后备队列长度已经达到上限且SYN请求队列中至少有一个握手过程中没有重传过段，则丢弃当前请求。
 
 \begin{minted}[linenos]{C}
     req = inet_reqsk_alloc(rsk_ops, sk, !want_cookie);
@@ -311,11 +317,6 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
 
 \begin{minted}[linenos]{C}
     tcp_rsk(req)->af_specific = af_ops;
-\end{minted}
-
-        这一步进行的是为了保护BGP会话。？？？
-        
-\begin{minted}[linenos]{C}
     tcp_clear_options(&tmp_opt);
     tmp_opt.mss_clamp = af_ops->mss_clamp;
     tmp_opt.user_mss  = tp->rx_opt.user_mss;
@@ -324,6 +325,7 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
 
         之后，清除TCP选项，初始化\mintinline{C}{mss_vlamp}和\mintinline{C}{user_mss}.然后调用\mintinline{C}{tcp_parse_options}解析SYN段中的TCP选项，查看是否有相关的选项。
 
+		关于tcp\_clear\_options的更多内容，请参见\ref{TCPOptions:tcp_clear_options}。
 \begin{minted}[linenos]{C}
     if (want_cookie && !tmp_opt.saw_tstamp)
         tcp_clear_options(&tmp_opt);
@@ -332,7 +334,8 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
         如果启动了syncookies，并且TCP选项中没有存在时间戳，则清除已经解析的TCP选项。这是因为计算\mintinline{C}{syn_cookie}必须用到时间戳。
 
 \begin{minted}[linenos]{C}
-    tmp_opt.tstamp_ok = tmp_opt.saw_tstamp;         //tstamp_ok表示在收到的SYN包上看到的TIMESTAMP
+	/* tstamp_ok表示在收到的SYN包上看到的TIMESTAMP*/
+    tmp_opt.tstamp_ok = tmp_opt.saw_tstamp;        
     tcp_openreq_init(req, &tmp_opt, skb, sk);
 \end{minted}
 
@@ -454,49 +457,8 @@ drop:
     return 0;
 \end{minted}
 
-
-            \subsubsection{\mintinline{C}{inet_csk_reqsk_queue_add}}
-
-\begin{minted}[linenos]{C}
-struct sock *inet_csk_reqsk_queue_add(struct sock *sk,
-                      struct request_sock *req,
-                      struct sock *child)
-{
-    struct request_sock_queue *queue = &inet_csk(sk)->icsk_accept_queue;
-
-    spin_lock(&queue->rskq_lock);
-    if (unlikely(sk->sk_state != TCP_LISTEN)) {
-        inet_child_forget(sk, req, child);
-        child = NULL;
-    } else {
-        req->sk = child;
-        req->dl_next = NULL;
-        if (queue->rskq_accept_head == NULL)
-            queue->rskq_accept_head = req;
-        else
-            queue->rskq_accept_tail->dl_next = req;
-        queue->rskq_accept_tail = req;
-        sk_acceptq_added(sk);
-    }
-    spin_unlock(&queue->rskq_lock);
-    return child;
-}
-\end{minted}
-
-                这一个函数所进行的操作就是直接将请求挂在接收队列中。
-
-            \subsubsection{\mintinline{C}{inet_csk_reqsk_queue_hash_add}}
-
-\begin{minted}[linenos]{C}
-void inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
-                   unsigned long timeout)
-{
-    reqsk_queue_hash_req(req, timeout);
-    inet_csk_reqsk_queue_added(sk);
-}
-\end{minted}
-
-                首先将连接请求块保存到父传输请求块的散列表中，并设置定时器超时时间。之后更新已存在的连接请求块数，并启动连接建立定时器。
+			关于\mintinline{C}{inet_csk_reqsk_queue_add}的更多内容请参见\ref{INET:inet_csk_reqsk_queue_add}。
+			关于\mintinline{C}{inet_csk_reqsk_queue_hash_add}的更多的内容请参见\ref{INET:inet_csk_reqsk_queue_hash_add}。
 
 %----------------------------------------------------------------------------------------
 %                   Server:     Send    SYN+ACK
@@ -504,10 +466,11 @@ void inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
 
         \subsection{第二次握手：发送SYN+ACK段}
             在第一次握手的最后调用了\mintinline{C}{af_ops->send_synack}函数，而该函数最终会调用\mintinline{C}{tcp_v4_send_synack}函数进行发送,故而这里我们这里就从这个函数进行分析。
-            \subsubsection{第二次函数调用关系}            
-                第二次握手的调用函数关系图如下：
+            \subsubsection{基本调用关系}            
                 \begin{figure}[htb]        
                    \center{\includegraphics[width=\textwidth]  {images/Server:Send SYN+ACK.png}}
+					\caption{Server:Send SYN+ACK}
+					\label{Server:Send SYN+ACK}
                 \end{figure}   
             \subsubsection{tcp\_v4\_send\_synack}
 \begin{minted}[linenos]{C}
@@ -735,9 +698,11 @@ struct sk_buff *tcp_make_synack(const struct sock *sk, struct dst_entry *dst,
         \subsection{第三次握手：接收ACK段}
 
 			在服务器第二次我受的最后启动了建立连接定时器，等待客户端最后一次握手的ACK段。           
-			\subsubsection{第三次握手函数调用关系图}
+			\subsubsection{基本调用关系}
 				\begin{figure}[htb]        
-					\center{\includegraphics[width=\textwidth]  {images/Server:Send ACK.png}}
+					\center{\includegraphics[width=\textwidth]  {images/Server:Receive ACK.png}}
+					\caption{Server:Receive ACK}
+					\label{Server:Receive ACK}
 				\end{figure}  
 			\subsubsection{\mintinline{C}{tcp_v4_do_rcv}}
 \begin{minted}[linenos]{C}

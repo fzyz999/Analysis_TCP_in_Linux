@@ -406,8 +406,65 @@ out:
     }
 }
 \end{minted}
+	\subsection{\mintinline{C}{inet_csk_reqsk_queue_add}}
+		\label{INET:inet_csk_reqsk_queue_add}
+\begin{minted}[linenos]{C}
+/*
+Location:
 
-\subsection{\mintinline{c}{inet_twsk_put}}
+*/
+struct sock *inet_csk_reqsk_queue_add(struct sock *sk,
+                      struct request_sock *req,
+                      struct sock *child)
+{
+    struct request_sock_queue *queue = &inet_csk(sk)->icsk_accept_queue;
+
+    spin_lock(&queue->rskq_lock);
+    if (unlikely(sk->sk_state != TCP_LISTEN)) {
+        inet_child_forget(sk, req, child);
+        child = NULL;
+    } else {
+        req->sk = child;
+        req->dl_next = NULL;
+        if (queue->rskq_accept_head == NULL)
+            queue->rskq_accept_head = req;
+        else
+            queue->rskq_accept_tail->dl_next = req;
+        queue->rskq_accept_tail = req;
+        sk_acceptq_added(sk);
+    }
+    spin_unlock(&queue->rskq_lock);
+    return child;
+}
+\end{minted}
+        这一个函数所进行的操作就是直接将请求挂在接收队列中。
+
+		\textcolor{blue}{调用位置}:
+
+			\begin{enumerate}
+				\item[1]		\ref{Server:tcp_conn_request}中的tcp\_conn\_request调用。
+			\end{enumerate}
+
+		\subsubsection{\mintinline{C}{inet_csk_reqsk_queue_hash_add}}
+			\label{INET:inet_csk_reqsk_queue_hash_add}
+\begin{minted}[linenos]{C}
+void inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
+                   unsigned long timeout)
+{
+    reqsk_queue_hash_req(req, timeout);
+    inet_csk_reqsk_queue_added(sk);
+}
+\end{minted}
+
+        首先将连接请求块保存到父传输请求块的散列表中，并设置定时器超时时间。之后更新已存在的连接请求块数，并启动连接建立定时器。
+
+		\textcolor{blue}{调用位置}:
+
+			\begin{enumerate}
+				\item[1]		\ref{Server:tcp_conn_request}中的tcp\_conn\_request调用。
+			\end{enumerate}
+
+	\subsection{\mintinline{c}{inet_twsk_put}}
 该函数用于释放\mintinline{c}{inet_timewait_sock}结构体。
 \begin{minted}[linenos]{c}
 void inet_twsk_put(struct inet_timewait_sock *tw)
@@ -656,6 +713,7 @@ static inline bool between(__u32 seq1, __u32 seq2, __u32 seq3)
 
 	\subsection{TCP CheckSum}
 		\subsubsection{\mintinline{C}{tcp_checksum_complete}}
+			\ref{TCPCheckSum:tcp_checksum_complete}
 			该函数时基于伪首部累加和，完成全包校验和的检测，值得注意的是，该函数用于
 			校验没有负载的TCP段。如果需要校验，并且校验成功，则返回1。
 \begin{minted}[linenos]{C}
@@ -680,7 +738,14 @@ static inline __sum16 __tcp_checksum_complete(struct sk_buff *skb)
 	return __skb_checksum_complete(skb);
 }
 \end{minted}
-			对于函数\mintinline{C}{__skb_checksum_complete},参见BSD Socket处的叙述。	
+			对于函数\mintinline{C}{__skb_checksum_complete},参见BSD Socket处的叙述。
+
+			\textcolor{blue}{调用位置}:
+
+				\begin{enumerate}
+					\item[1]		\ref{ServerReceiveSYN:tcp_v4_do_rcv}中的tcp\_v4\_do\_rcv调用。
+				\end{enumerate}
+			
 		\subsubsection{\mintinline{C}{tcp_v4_checksum_init}}
 \begin{minted}[linenos]{C}
 /*没找到。。*/
@@ -1070,6 +1135,27 @@ while (length > 0) {
 
 			\begin{enumerate}
 				\item[1]		\ref{SYN+ACK:tcp_rcv_synsent_state_process}的tcp\_rcv\_synsent\_state\_process中调用。
+			\end{enumerate}
+		\subsubsection{\mintinline{C}{tcp_clear_options}}
+			\label{TCPOptions:tcp_clear_options}
+\begin{minted}[linenos]{C}
+/*
+Location:
+
+	include/linux/tcp.h
+Function:
+	
+	主要是使时间戳标记，SACK，窗口扩大选项设置为0。
+*/
+static inline void tcp_clear_options(struct tcp_options_received *rx_opt)
+{
+	rx_opt->tstamp_ok = rx_opt->sack_ok = 0;
+	rx_opt->wscale_ok = rx_opt->snd_wscale = 0;
+}
+\end{minted}
+
+			\begin{enumerate}
+				\item[1]		\label{Server:tcp_conn_request}的tcp\_conn\_request中调用。
 			\end{enumerate}
     \subsection{\mintinline{c}{__tcp_push_pending_frames}}
 \begin{minted}[linenos]{c}
