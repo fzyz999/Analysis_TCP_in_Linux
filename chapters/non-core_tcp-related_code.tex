@@ -500,17 +500,17 @@ syncookie严重的违背TCP协议，不允许使用TCP扩展，可能对某些�
 \item[tcp\_max\_syn\_backlog] INTEGER,
 对于那些依然还未获得客户端确认的连接请求﹐需要保存在队列中最大数目。对于超过 128Mb 内存的系统﹐默认值是1024 ﹐低于 128Mb 的则为 128。如果服务器经常出现过载﹐可以尝试增加这个数字。警告﹗假如您将此值设为大于1024﹐最好修改 include/net/tcp.h 里面的 TCP\_SYNQ\_HSIZE ﹐以保持TCP\_SYNQ\_HSIZE*16<=tcp\_max\_syn\_backlog ﹐并且编进核心之内。(SYN Flood攻击利用TCP协议散布握手的缺陷，伪造虚假源IP地址发送大量TCP-SYN半打开连接到目标系统，最终导致目标系统Socket队列资源耗尽而无法接受新的连接。为了应付这种攻击，现代Unix系统中普遍采用多连接队列处理的方式来缓冲(而不是解决)这种攻击，是用一个基本队列处理正常的完全连接应用(Connect()和Accept() )，是用另一个队列单独存放半打开连接。这种双队列处理方式和其他一些系统内核措施(例如Syn-Cookies/Caches)联合应用时，能够比较有效的缓解小规模的SYN Flood攻击(事实证明<1000p/s)加大SYN队列长度可以容纳更多等待连接的网络连接数，所以对Server来说可以考虑增大该值.)
 
-\item[tcp\_window\_scaling] INTEGER,
-缺省值为1
-该文件表示设置tcp/ip会话的滑动窗口大小是否可变。参数值为布尔值，为1时表示可变，为0时表示不可变。tcp/ip通常使用的窗口最大可达到 65535 字节，对于高速网络，该值可能太小，这时候如果启用了该功能，可以使tcp/ip滑动窗口大小增大数个数量级，从而提高数据传输的能力(RFC 1323)。（对普通地百M网络而言，关闭会降低开销，所以如果不是高速网络，可以考虑设置为0）
+\item[tcp\_window\_scaling] BOOL,
+							缺省值为1,
+							该标志表示tcp/ip会话的滑动窗口大小是否可变。参数值为布尔值，为1时表示可变，为0时表示不可变。tcp/ip通常使用的窗口最大可达到 65535 字节，对于高速网络，该值可能太小，这时候如果启用了该功能，可以使tcp/ip滑动窗口大小增大数个数量级，从而提高数据传输的能力(RFC 1323)。当然，对普通的百M网络而言，关闭会降低开销，所以如果不是高速网络，可以设置为0。
 
 \item[tcp\_timestamps] BOOLEAN,
-缺省值为1
-Timestamps 用在其它一些东西中﹐可以防范那些伪造的 sequence 号码。一条1G的宽带线路或许会重遇到带 out-of-line数值的旧sequence 号码(假如它是由于上次产生的)。Timestamp 会让它知道这是个 '旧封包'。(该文件表示是否启用以一种比超时重发更精确的方法（RFC 1323）来启用对 RTT 的计算；为了实现更好的性能应该启用这个选项。)
+						缺省值为1，
+						该标志表示是否启用以一种比超时重发更精确的方法（RFC 1323）来启用对 RTT 的计算，为了实现更好的性能应该启用这个选项。同时，Timestamps可以防范那些伪造的 sequence 序列号，一条1G的宽带线路或许会重遇到带 out-of-line数值的旧sequence 号码(假如它是由于上次产生的)。Timestamp 会让它知道这是个 '旧封包'。
 
 \item[tcp\_sack] BOOLEAN,
-缺省值为1
-使用 Selective ACK﹐它可以用来查找特定的遗失的数据报--- 因此有助于快速恢复状态。该文件表示是否启用有选择的应答（Selective Acknowledgment），这可以通过有选择地应答乱序接收到的报文来提高性能（这样可以让发送者只发送丢失的报文段）。(对于广域网通信来说这个选项应该启用，但是这会增加对 CPU 的占用。)
+				缺省值为1，
+				该标志表示是否启用有选择的应答（Selective Acknowledgment），这可以通过有选择地应答乱序接收到的报文来提高性能（这样可以让发送者只发送丢失的报文段）。它可以用来查找特定的遗失的数据报，因此有助于快速恢复状态。对于广域网通信来说这个选项应该启用，但是这会增加对 CPU 的占用。
 
 \item[tcp\_fack] BOOLEAN,
 缺省值为1
@@ -577,8 +577,7 @@ max：用于TCP socket接收缓冲的内存最大值。该值不会影响 net.co
 				缺省值为0,
 				为快速长距离网络启用 Binary Increase Congestion；这样可以更好地利用以 GB 速度进行操作的链接；对于 WAN 通信应该启用这个选项。
 \end{enumerate}
-    \subsection{TCP相关宏定义}
-        \subsubsection{标志宏}
+    \subsection{TCP 标志宏}
 \begin{minted}[linenos]{C}
 #define FLAG_DATA       0x01        /* Incoming frame contained data.       */
 #define FLAG_WIN_UPDATE     0x02    /* Incoming ACK was a window update.    */
@@ -629,7 +628,23 @@ max：用于TCP socket接收缓冲的内存最大值。该值不会影响 net.co
 
 　　                        4）网络上是不是把我的数据包给复制了。
 \end{enumerate}
-		\subsubsection{函数宏}
+	\subsection{函数宏}
+		\subsubsection{before()和after()}
+			在一些需要判断序号前后的地方出现了\mintinline{c}{before()}和\mintinline{c}{after()}
+			这两个函数。这两个函数的定义如下
+\begin{minted}[linenos]{c}
+/* include/net/tcp.h
+ * 比较两个无符号32位整数
+ */
+static inline bool before(__u32 seq1, __u32 seq2)
+{
+        return (__s32)(seq1-seq2) < 0;
+}
+#define after(seq2, seq1)       before(seq1, seq2)
+\end{minted}
+		可以看到，这两个函数实际上就是将两个数直接相减。之所以要单独弄个函数应该是为了避免强制转型
+		造成影响。序号都是32位无符号整型。
+
 	\subsection{TCP CheckSum}
 		\subsubsection{\mintinline{C}{tcp_checksum_complete}}
 			该函数时基于伪首部累加和，完成全包校验和的检测，值得注意的是，该函数用于
@@ -788,6 +803,264 @@ static void tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags)
 			\item[1]		\ref{Client:tcp_connect}的tcp\_connect中调用。
 			\end{enumerate}
 
+	\subsection{\mintinline{C}{TCP Options}}
+		\subsubsection{TCP Options Flags}
+
+\begin{minted}[linenos]{C}
+/*
+Location
+
+	include/net/tcp.h
+	
+Description:
+	
+	TCP option
+*/
+#define TCPOPT_NOP			1	/* Padding */
+#define TCPOPT_EOL			0	/* End of options */
+#define TCPOPT_MSS			2	/* Segment size negotiating */
+#define TCPOPT_WINDOW		3	/* Window scaling */
+#define TCPOPT_SACK_PERM    4   /* SACK Permitted */
+#define TCPOPT_SACK         5   /* SACK Block */
+#define TCPOPT_TIMESTAMP	8	/* Better RTT estimations/PAWS */
+#define TCPOPT_MD5SIG		19	/* MD5 Signature (RFC2385) */
+#define TCPOPT_FASTOPEN		34	/* Fast open (RFC7413) */
+#define TCPOPT_EXP			254	/* Experimental */
+/* Magic number to be after the option value for sharing TCP
+ * experimental options. See draft-ietf-tcpm-experimental-options-00.txt
+ */
+#define TCPOPT_FASTOPEN_MAGIC	0xF989
+
+/*
+ *     TCP option lengths
+ */
+
+#define TCPOLEN_MSS            4
+#define TCPOLEN_WINDOW         3
+#define TCPOLEN_SACK_PERM      2
+#define TCPOLEN_TIMESTAMP      10
+#define TCPOLEN_MD5SIG         18
+#define TCPOLEN_FASTOPEN_BASE  2
+#define TCPOLEN_EXP_FASTOPEN_BASE  4
+\end{minted}		
+		\subsubsection{\mintinline{C}{tcp_parse_fastopen_option}}
+			\label{TCPOptions:tcp_parse_fastopen_option}
+\begin{minted}[linenos]{C}
+/*
+Location:
+
+	net/ipv4/tcp_input.c
+
+Function:
+
+	处理Fastopen
+
+Parameter:
+
+	len:长度
+	cookie:用于fast open
+	syn:是否有syn
+	foc:用于fastopen cookie
+	exp_opt:是否是实验阶段。
+*/
+static void tcp_parse_fastopen_option(int len, const unsigned char *cookie,
+				      bool syn, struct tcp_fastopen_cookie *foc,
+				      bool exp_opt)
+{
+	/* Valid only in SYN or SYN-ACK with an even length.  */
+	if (!foc || !syn || len < 0 || (len & 1))
+		return;
+
+	if (len >= TCP_FASTOPEN_COOKIE_MIN &&
+	    len <= TCP_FASTOPEN_COOKIE_MAX)
+		memcpy(foc->val, cookie, len);
+	else if (len != 0)
+		len = -1;
+	foc->len = len;
+	foc->exp = exp_opt;
+}
+\end{minted}
+		\textcolor{blue}{调用位置}:
+
+			%\begin{enumerate}
+				%\item[1]		\ref{SYN+ACK:tcp_rcv_synsent_state_process}的tcp\_rcv\_synsent\_state\_process中调用。
+			%\end{enumerate}
+		\subsubsection{\mintinline{C}{tcp_parse_options}}
+			\label{TCPOptions:tcp_parse_options}
+				关于TCP Options的格式，如果不清楚的话，可以参考\ref{RFC793TCPHeader:tcp_header_format}中的介绍。
+\begin{minted}[linenos]{C}
+/* 
+Location:
+
+	net/ipv4/tcp_input.c
+
+Function:
+
+	Look for tcp options. Normally only called on SYN and SYNACK packets.
+	But, this can also be called on packets in the established flow when
+	the fast version below fails.
+
+Parameter:
+
+	skb:缓存块
+	opt_rx:TCP的选项部分
+	eatab:标志是否建立。
+	foc:表明是否是快速打开。
+*/
+void tcp_parse_options(const struct sk_buff *skb,
+		       struct tcp_options_received *opt_rx, int estab,
+		       struct tcp_fastopen_cookie *foc)
+{
+	const unsigned char *ptr;
+	const struct tcphdr *th = tcp_hdr(skb);
+	/*选项部分长度*/
+	int length = (th->doff * 4) - sizeof(struct tcphdr);
+	/*得到选项的首部*/
+	ptr = (const unsigned char *)(th + 1);
+	/*标记没有看到时间戳*/	
+	opt_rx->saw_tstamp = 0;
+
+	while (length > 0) {
+		/*选项的类型*/
+		int opcode = *ptr++;
+		/*选项长度的大小*/		
+		int opsize;
+
+		switch (opcode) {
+			//End of options
+			case TCPOPT_EOL:
+				return;
+			//Padding			
+			case TCPOPT_NOP:	/* Ref: RFC 793 section 3.1 */
+				length--;
+				continue;
+			default:
+				/*
+					得到选项的长度，选项长度不可能小于2,
+					具体参见上面的宏定义说明。
+				*/
+				opsize = *ptr++;
+				if (opsize < 2) 	/* "silly options" */
+					return;
+				/*也不可能大于length*/
+				if (opsize > length)
+					return;	/* don't parse partial options */
+				switch (opcode) {
+					/*最大报文段长度,只用于最初的协商阶段*/
+					case TCPOPT_MSS:
+						if (opsize == TCPOLEN_MSS && th->syn && !estab) {
+							/*取最大段长度,如果为0,那怎么办呢？这里似乎并没有处理*/
+							u16 in_mss = get_unaligned_be16(ptr);
+							if (in_mss) {
+								/*
+									将最大段长度设置为选项中和用户自身的较小值。
+								*/
+								if (opt_rx->user_mss &&
+									opt_rx->user_mss < in_mss)
+									in_mss = opt_rx->user_mss;
+								opt_rx->mss_clamp = in_mss;
+							}
+						}
+						break;
+					/*窗口扩大因子选项，也只能出现在SYN且未建立的情况下，并且支持该选项*/
+					case TCPOPT_WINDOW:
+						if (opsize == TCPOLEN_WINDOW && th->syn &&
+							!estab && sysctl_tcp_window_scaling) {
+							/*取位移数*/
+							__u8 snd_wscale = *(__u8 *)ptr;
+							/*将表示包含窗口扩大因子的选项置位*/
+							opt_rx->wscale_ok = 1;
+							/*大于14则警告，并设重新设置为14.*/
+							if (snd_wscale > 14) {
+								net_info_ratelimited("%s: Illegal window scaling value %d >14 received\n",
+											 __func__,
+											 snd_wscale);
+								snd_wscale = 14;
+							}
+							opt_rx->snd_wscale = snd_wscale;
+						}
+						break;
+					/*时间戳选项，满足条件为：在建立的时候或者未建立但支持时间戳选项*/
+					case TCPOPT_TIMESTAMP:
+						if ((opsize == TCPOLEN_TIMESTAMP) &&
+							((estab && opt_rx->tstamp_ok) ||
+							 (!estab && sysctl_tcp_timestamps))) {
+							/*看见时间戳*/							
+							opt_rx->saw_tstamp = 1;
+							/*time stamp value*/
+							opt_rx->rcv_tsval = get_unaligned_be32(ptr);
+							/*time stamp echo reply*/
+							opt_rx->rcv_tsecr = get_unaligned_be32(ptr + 4);
+						}
+						break;
+					/*SACK Permit，只能在syn并且未建立的时候使用*/
+					case TCPOPT_SACK_PERM:
+						if (opsize == TCPOLEN_SACK_PERM && th->syn &&
+							!estab && sysctl_tcp_sack) {
+							//标记看见
+							opt_rx->sack_ok = TCP_SACK_SEEN;
+							/*
+								将与SACK有关的字段清零dsack,eff_sacks,num_sacks
+							*/
+							tcp_sack_reset(opt_rx);
+						}
+						break;
+					/*表明有SACK*/
+					case TCPOPT_SACK:
+						/*
+							TCPOLEN_SACK_BASE为2,TCPOLEN_SACK_PERBLOCK为8
+							因此，if语句的意思是，该选项包含kind、length以及
+							一个左右边界值对，且扣除kind和length字段之后，
+							nnegbei左右边界值对的大小整除，sack_ok为1表示
+							允许SACK.
+						*/
+						if ((opsize >= (TCPOLEN_SACK_BASE + TCPOLEN_SACK_PERBLOCK)) &&
+						   !((opsize - TCPOLEN_SACK_BASE) % TCPOLEN_SACK_PERBLOCK) &&
+						   opt_rx->sack_ok) {
+							/*将sacked的值指向这些左右边界值对的起始处*/
+							TCP_SKB_CB(skb)->sacked = (ptr - 2) - (unsigned char *)th;
+						}
+						break;
+		#ifdef CONFIG_TCP_MD5SIG
+					case TCPOPT_MD5SIG:
+						/*
+						 * The MD5 Hash has already been
+						 * checked (see tcp_v{4,6}_do_rcv()).
+						 */
+						break;
+		#endif
+					/*快打开*/
+					case TCPOPT_FASTOPEN:
+						tcp_parse_fastopen_option(
+							opsize - TCPOLEN_FASTOPEN_BASE,
+							ptr, th->syn, foc, false);
+						break;
+					/*实验阶段的Fast Open，现在基本上已经成形了。*/
+					case TCPOPT_EXP:
+						/* Fast Open option shares code 254 using a
+						 * 16 bits magic number.
+						 */
+						if (opsize >= TCPOLEN_EXP_FASTOPEN_BASE &&
+							get_unaligned_be16(ptr) ==
+							TCPOPT_FASTOPEN_MAGIC)
+							tcp_parse_fastopen_option(opsize -
+								TCPOLEN_EXP_FASTOPEN_BASE,
+								ptr + 2, th->syn, foc, true);
+						break;
+
+				}
+				/*进入下一个循环，处理下一个选项*/
+				ptr += opsize-2;
+				length -= opsize;
+		}
+	}
+}
+\end{minted}
+		\textcolor{blue}{调用位置}:
+
+			\begin{enumerate}
+				\item[1]		\ref{SYN+ACK:tcp_rcv_synsent_state_process}的tcp\_rcv\_synsent\_state\_process中调用。
+			\end{enumerate}
     \subsection{\mintinline{c}{__tcp_push_pending_frames}}
 \begin{minted}[linenos]{c}
 /* 将等待在队列中的包全部发出。 */
@@ -1185,7 +1458,7 @@ static void tcp_check_urg(struct sock *sk, const struct tcphdr *th)
 	tp->pred_flags = 0;
 }
 \end{minted}
-		\subsubsection{\mintinline{C}{tcp\_urg}}
+		\subsubsection{\mintinline{C}{tcp_urg}}
 			\label{TCPUrgent:tcp_urg}
 \begin{minted}[linenos]{C}
 /*
@@ -1234,6 +1507,13 @@ static void tcp_urg(struct sock *sk, struct sk_buff *skb, const struct tcphdr *t
 	}
 }
 \end{minted}	
+
+		\textcolor{blue}{调用位置}:
+
+			\begin{enumerate}
+			\item[1]		\ref{SYN+ACK:tcp_rcv_state_process}的tcp\_rcv\_state\_process中调用。
+			\end{enumerate}
+
 	\subsection{\mintinline{c}{tcp_fin_time}}
 		计算等待接收FIN的超时时间。超时时间至少为$\frac{7}{2}$倍的rto。
 \begin{minted}[linenos]{c}
@@ -1633,21 +1913,7 @@ void tcp_done(struct sock *sk)
 
 
 
-\subsection{before()和after()}
-在一些需要判断序号前后的地方出现了\mintinline{c}{before()}和\mintinline{c}{after()}
-这两个函数。这两个函数的定义如下
-\begin{minted}[linenos]{c}
-/* include/net/tcp.h
- * 比较两个无符号32位整数
- */
-static inline bool before(__u32 seq1, __u32 seq2)
-{
-        return (__s32)(seq1-seq2) < 0;
-}
-#define after(seq2, seq1)       before(seq1, seq2)
-\end{minted}
-可以看到，这两个函数实际上就是将两个数直接相减。之所以要单独弄个函数应该是为了避免强制转型
-造成影响。序号都是32位无符号整型。
+
 
     \subsection{\mintinline{C}{tcp_shutdown}}
 

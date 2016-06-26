@@ -1441,8 +1441,9 @@ struct tcp_sock {
                     */
 
     u32 retrans_stamp;  /* Timestamp of the last retransmit,
-                 * also used in SYN-SENT to remember stamp of
-                 * the first SYN. */
+                 		* also used in SYN-SENT to remember stamp of
+                 		* the first SYN. 
+						*/
     u32 undo_marker;    /* snd_una upon a new recovery episode. 
                             在使用F-RTO算法进行发送超时处理，或进入Recovery进行重传，
                             或进入Loss开始慢启动时，记录当时SND.UNA,标记重传起始点。

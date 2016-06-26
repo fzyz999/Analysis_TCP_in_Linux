@@ -382,7 +382,10 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 }
 \end{minted}
 
+	关于tcp\_urg的详细内容，请参见\ref{TCPUrgent:tcp_urg}.
+
     \subsubsection{\mintinline{c}{tcp_rcv_synsent_state_process}}
+		\label{SYN+ACK:tcp_rcv_synsent_state_process}
         具体的处理代码在\mintinline{c}{tcp_rcv_synsent_state_process}中，通过
         命名就可以看出，该函数是专门用于处理SYN\_SENT状态下收到数据的情况。
 
@@ -423,8 +426,10 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
                 tp->rx_opt.rcv_tsecr -= tp->tsoffset;
 \end{minted}
 
-接下来的部分，就是按照TCP协议的标准来实现相应的行为。注释中出现的RFC793即是描述TCP协议
-的RFC原文中的文本。
+		关于tcp\_parse\_options的更多的内容，请参见\ref{TCPOptions:tcp_parse_options}。
+
+		接下来的部分，就是按照TCP协议的标准来实现相应的行为。注释中出现的RFC793即是描述TCP协议
+		的RFC原文中的文本。
 \begin{minted}[linenos]{c}
         if (th->ack) {
                 /* rfc793:
@@ -440,7 +445,7 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
                 if (!after(TCP_SKB_CB(skb)->ack_seq, tp->snd_una) ||
                     after(TCP_SKB_CB(skb)->ack_seq, tp->snd_nxt))
                         goto reset_and_undo;
-
+				/*必须在对应的时间内*/
                 if (tp->rx_opt.saw_tstamp && tp->rx_opt.rcv_tsecr &&
                     !between(tp->rx_opt.rcv_tsecr, tp->retrans_stamp,
                              tcp_time_stamp)) {

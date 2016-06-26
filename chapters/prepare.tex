@@ -143,7 +143,7 @@ struct proto tcp_prot = {
 也发送完成后，发送FIN包，进入LAST-ACK状态，接收到ACK后，进入CLOSED状态。
 
 \subsubsection{TCP头部格式}
-\label{subsubsec:tcp_header_format}
+\label{RFC793TCPHeader:tcp_header_format}
 RFC793中，对于TCP头部格式的描述摘录如下：
 \begin{minted}[linenos]{text}
     0                   1                   2                   3   
@@ -176,17 +176,29 @@ RFC793中，对于TCP头部格式的描述摘录如下：
 选项来实现的。
 
     选项总是在TCP头部的最后,且长度是 8 位的整数倍。全部选项都被包括在
-校验和中。选项可从任何字节边界开始。选项的格式有 2 种情况\textbf{有待补充}:
+校验和中。选项可从任何字节边界开始。选项的格式有 2 种情况:
 \begin{enumerate}
 \item 单独的一个字节，代表选项的类型例如：
 
 \begin{minted}[linenos]{text}
-  End of Option List
-  +--------+
-  |00000000| 
-  +--------+ 
-  Kind=0
+	End of Option List
+	+--------+
+	|00000000| 
+	+--------+ 
+	Kind=0
+
+	No-Operation
+	+--------+
+	|00000001|
+	+--------+
+	Kind=1
 \end{minted}
+
+
+\begin{minted}[linenos]{text}
+
+\end{minted}
+
 
 \item 第一个字节代表选项的类型，紧跟着的一个字节代表选项的长度，后面跟着
 选项的数据。例如：
@@ -257,9 +269,9 @@ SND.WND = SEG.WND << Snd.Wind.Scale
 SEG.WND = RCV.WND >> Rcv.Wind.Scale
 \end{minted}
 
-\subsubsection{PAWS(Protect Against Wrapped Sequence Numbers)}
-PAWS是一个用于防止旧的重复封包带来的问题的机制。它采用了TCP中的Timestamps选项。
-该选项的格式为：
+		\subsubsection{PAWS(Protect Against Wrapped Sequence Numbers)}
+			PAWS是一个用于防止旧的重复封包带来的问题的机制。它采用了TCP中的Timestamps选项。
+			该选项的格式为：
 \begin{minted}[linenos]{text}
 +-------+-------+---------------------+---------------------+ 
 |Kind=8 |  10   |   TS Value (TSval)  |TS Echo Reply (TSecr)| 
@@ -267,8 +279,8 @@ PAWS是一个用于防止旧的重复封包带来的问题的机制。它采用�
     1       1              4                      4
 \end{minted}
 
-TSval(Timestamp Value)包含了TCP发送方的时钟的当前值。如果ACK位被设置了的话，
-TSecr(Timestamp Echo Reply)会包含一个由对方发送过来的最近的时钟值。
+			TSval(Timestamp Value)包含了发送该TCP段时时钟的值。如果ACK位被设置了的话，
+			TSecr(Timestamp Echo Reply)会记录最近一次收到的报文中TSval的值。
 
 PAWS的算法流程为：
 \begin{enumerate}
