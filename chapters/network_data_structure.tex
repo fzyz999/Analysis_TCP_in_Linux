@@ -1385,8 +1385,8 @@ struct tcp_sock {
     u16 urg_data;   /* Saved octet of OOB data and control flags */
     u8  ecn_flags;  /* ECN status bits.         */
     u8  keepalive_probes; /* num of allowed keep alive probes   */
-    u32 reordering; /* Packet reordering metric.        */
-    u32 snd_up;     /* Urgent pointer       */
+    u32 reordering; 	/* Packet reordering metric.        */
+    u32 snd_up;     	/* Urgent pointer       */
 
 /*
  *      Options received (usually on last packet, some only on SYN packets).
@@ -1397,7 +1397,9 @@ struct tcp_sock {
  *  Slow start and congestion control (see also Nagle, and Karn & Partridge)
  */
     u32 snd_ssthresh;   /* Slow start size threshold        */
-    u32 snd_cwnd;   /* Sending congestion window        */
+    u32 snd_cwnd;   	/* Sending congestion window        
+							发送的拥塞窗口
+						*/
     u32 snd_cwnd_cnt;   /* Linear increase counter      
                             自从上次调整拥塞窗口到目前为止接收到的总ACK段数。
                             如果该字段为零，则说明已经调整了拥塞窗口，且到目前
@@ -1412,10 +1414,16 @@ struct tcp_sock {
                             程序限制而造成拥塞窗口失效，因此在成功发送段后，
                             如果有必要也会检验拥塞窗口。
                         */
-    u32 prior_cwnd; /* Congestion window at start of Recovery. */
+    u32 prior_cwnd; 	/* Congestion window at start of Recovery. 
+							在进入Recovery状态时的拥塞窗口
+						*/
     u32 prr_delivered;  /* Number of newly delivered packets to
-                 * receiver in Recovery. */
-    u32 prr_out;    /* Total number of pkts sent during Recovery. */
+                 		 * receiver in Recovery. 
+							在恢复阶段给接收者新发送包的数量
+						*/
+    u32 prr_out;    	/* Total number of pkts sent during Recovery. 
+							在恢复阶段一共发送的包的数量
+						*/
 
     u32 rcv_wnd;    /* Current receiver window      */
     u32 write_seq;  /* Tail(+1) of data held in tcp send buffer 

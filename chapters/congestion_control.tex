@@ -2,6 +2,15 @@
 
 	\subsection{拥塞控制状态机}
 		\subsubsection{基本转换}
+		转换如下:
+            \begin{figure}[htb]        
+                \centering
+                \includegraphics[width=\textwidth]  {images/Congestion Control State Machine.pdf}
+				\caption{Congestion Control State Machine}
+				\label{Congestion Control State Machine}
+            \end{figure} 
+	
+		定义如下:
 \begin{minted}[linenos]{C}
 enum tcp_ca_state {
 	TCP_CA_Open = 0,
@@ -17,13 +26,14 @@ enum tcp_ca_state {
 };
 \end{minted}
 		\subsubsection{Open状态}
-			Open状态是常态，在这种状态下TCP发送方通过优化后的快速路径来处理接收ACK。当一个确认到达时，发送方根据拥塞窗口时小于还是大于慢启动阙值，按慢启动或者拥塞避免来增大拥塞窗口。
+			Open状态是常态，在这种状态下TCP发送方通过优化后的快速路径来处理接收ACK。当一个确认到达时，发送方根据拥塞窗口是小于还是大于慢启动阙值，按慢启动或者拥塞避免来增大拥塞窗口。
 
 		\subsubsection{Disorder状态}
-			当发送方检测到DACK(重复确认)或者SACK(选择性确认)时，将转变为Disorder(无序)状态。在该状态下，拥塞窗口不做调整，而是每个新到的段出发一个新的数据段的发送。因此，TCP发送方遵循包守恒原则，该原则规定一个新包只有在一个老的包离开网络后才发送。在实践中该规定的表现类似于IETF的传输提议，允许当拥塞窗口较小或是上个传输窗口中有大量数据段丢失时，使用快速重传以更有效地恢复。
+			当发送方检测到DACK(重复确认)或者SACK(选择性确认)时，将转变为Disorder(无序)状态。在该状态下，拥塞窗口不做调整，而是每个新到的段触发一个新的数据段的发送。因此，TCP发送方遵循包守恒原则，该原则规定一个新包只有在一个老的包离开网络后才发送。在实践中，该规定的表现类似于IETF的传输提议，允许当拥塞窗口较小或是上个传输窗口中有大量数据段丢失时，使用快速重传以更有效地恢复。
 
 		\subsubsection{CWR状态}
-			TCP发送方可能从显示拥塞通知、ICMP源端抑制(ICMP source quench)或是本地设备接收到拥塞通知。当收到一个拥塞通知时，发送方并不立刻减小拥塞窗口，而是每隔一个新到的ACK减小一个段直到窗口的大小减半为止。发送方在减小拥塞窗口大小的过程中不会有明显的重传，这就处于CWR(Congestion Window Reduced,拥塞窗口减小)状态。CWR状态可以被Revcovery状态或者Loss状态中断。进入拥塞窗口减小的函数如下：
+			\label{CongestionState:CWR}
+			TCP发送方可能从显式拥塞通知、ICMP源端抑制(ICMP source quench)或是本地设备接收到拥塞通知。当收到一个拥塞通知时，发送方并不立刻减小拥塞窗口，而是每隔一个新到的ACK减小一个段直到窗口的大小减半为止。发送方在减小拥塞窗口大小的过程中不会有明显的重传，这就处于CWR(Congestion Window Reduced,拥塞窗口减小)状态。CWR状态可以被Revcovery状态或者Loss状态中断。进入拥塞窗口减小的函数如下：
 
 \begin{minted}[linenos]{C}
 /* 
@@ -46,9 +56,9 @@ void tcp_enter_cwr(struct sock *sk)
       因此需要清除拥塞控制的慢启动阙值
 	*/
 	tp->prior_ssthresh = 0;
-	/*可以看出只有OPen状态和Disorder状态可以转移到该状态*/
+	/*可以看出只有Open状态和Disorder状态可以转移到该状态*/
 	if (inet_csk(sk)->icsk_ca_state < TCP_CA_CWR) {
-		/*湖北人与CWR状态后不允许在进行拥塞窗口撤消了*/		
+		/*进入CWR状态后不允许在进行拥塞窗口撤消了*/		
 		tp->undo_marker = 0;
 		/*进行相关的初始化*/
 		tcp_init_cwnd_reduction(sk);
@@ -57,70 +67,22 @@ void tcp_enter_cwr(struct sock *sk)
 	}
 }
 \end{minted}
+		关于tcp\_init\_cwnd\_reduction更多的内容，请参见\ref{CongestionControlWindow:tcp_init_cwnd_reduction}。
 
-		对于函数\mintinline{C}{tcp_init_cwnd_reduction}的调用如下：
-\begin{minted}[linenos]{C}
-/*
-Location:
-
-	net/ipv4/tcp_input.c
-
-Function:
-	The cwnd reduction in CWR and Recovery uses the PRR algorithm in RFC 6937.
-	It computes the number of packets to send (sndcnt) based on packets newly
-	delivered:
-		1) If the packets in flight is larger than ssthresh, PRR spreads the
-			cwnd reductions across a full RTT.
-		2) Otherwise PRR uses packet conservation to send as much as delivered.
-			But when the retransmits are acked without further losses, PRR
-			slow starts cwnd up to ssthresh to speed up the recovery.
-
-parameter:
-
-	sk:传输控制块
-*/
-static void tcp_init_cwnd_reduction(struct sock *sk)
-{
-	struct tcp_sock *tp = tcp_sk(sk);
-
-	/*记录发送拥塞时的snd.nxt*/
-	tp->high_seq = tp->snd_nxt;
-	/*snd_nxt at the time of TLP retransmit*/
-	tp->tlp_high_seq = 0;
-	/*snd_cwnd_cnt表示自从上次调整拥塞窗口到
-	 目前为止接收到的总ACK段数，这里设置为0是因为
-	 刚刚改变拥塞控制算法为PRR。
-	*/
-	tp->snd_cwnd_cnt = 0;
-	/*prior_cwnd means Congestion window at start of Recovery
-		设置该值为当前拥塞窗口。
-	*/
-	tp->prior_cwnd = tp->snd_cwnd;
-	/*Number of newly delivered packets
-	  to receiver in Recovery,设置为0
-	*/
-	tp->prr_delivered = 0;
-	/*Total number of pkts sent during Recovery*/
-	tp->prr_out = 0;
-	/*根据给定的拥塞控制算法重新设置拥塞慢启动阙值*/
-	tp->snd_ssthresh = inet_csk(sk)->icsk_ca_ops->ssthresh(sk);
-	/*设置TCP_ECN_QUEUE_CWR标志，标识由于收到显示拥塞通知而进入拥塞状态*/
-	tcp_ecn_queue_cwr(tp);
-}
-\end{minted}
 		\subsubsection{Recovery状态}
 
-			当足够多的连续重复ACK到达后，发送方重传第一个没有被确认的段，进入Recovery(恢复)状态。默认情况下，进入Recovery状态的条件是三个连续的重复ACK，TCP拥塞控制规范也是这么推荐的。在Recovery状态期间，拥塞窗口的大小每隔一个新到的确认而减少一个段，和CWR状态类似。这种窗口减小过程终止与拥塞窗口大小等于ssthresh，即进入Recovery状态时，窗口大小的一半。拥塞窗口在恢复期间不增大，发送方重传那些被标记为丢失的段，或者根据包守恒原则在新数据上标记前向传输。发送方保持Recovery状态直到所有进入Recovery状态时正在发送的数据段都成功地被确认，之后该发送方恢复OPEN状态，重传超时有可能中断Recovery状态。
+			当足够多的连续重复ACK到达后，发送方重传第一个没有被确认的段，进入Recovery(恢复)状态。默认情况下，进入Recovery状态的条件是三个连续的重复ACK，TCP拥塞控制规范也是这么推荐的。在Recovery状态期间，拥塞窗口的大小每隔一个新到的确认而减少一个段，和CWR状态类似。这个窗口减小过程终止与拥塞窗口大小等于ssthresh，即进入Recovery状态时，窗口大小的一半。拥塞窗口在恢复期间不增大，发送方重传那些被标记为丢失的段，或者根据包守恒原则在新数据上标记前向传输。发送方保持Recovery状态直到所有进入Recovery状态时正在发送的数据段都成功地被确认，之后该发送方恢复OPEN状态，重传超时有可能中断Recovery状态。
 
 		\subsubsection{Loss状态}
+			\label{CongestionState:Loss}
 			当一个RTO到期后，发送方进入Loss状态。所有正在发送的数据段标记为丢失，
 			拥塞窗口设置为一个段，发送方因此以慢启动算法增大拥塞窗口。
-			Loss和Recovery状态的区别是，Loss状态下，拥塞窗口在发送方设置为一个段后增大，
+			Loss和Recovery状态的区别是:Loss状态下，拥塞窗口在发送方设置为一个段后增大，
 			而Recovery状态下，拥塞窗口只能被减小。Loss状态不能被其他的状态中断，
 			因此，发送方只有在所有Loss开始时正在传输的数据都得到成功确认后，才能退到Open状态。
 			例如，快速重传不能在Loss状态期间被触发，这和NewReno规范是一致的。
 
-			当接收到的ACK的确认已经被之前的SACK确认过，这意味着我们记录的SACK信息不能呢个反映接收方的实际状态，
+			当接收到的ACK的确认已经被之前的SACK确认过，这意味着我们记录的SACK信息不能反映接收方的实际状态，
 			此时，也会进入Loss状态。
 
 			调用\mintinline{C}{tcp_enter_loss}进入Loss状态，如下：
@@ -170,6 +132,11 @@ void tcp_enter_loss(struct sock *sk)
 		*/
 		tcp_init_undo(tp);
 	}
+\end{minted}
+
+	关于tcp\_init\_undo更多内容,请参见\ref{CongestionControlWindowUndo:tcp_init_undo}.
+
+\begin{minted}[linenos]{C}
 	/*拥塞窗口大小设置为1*/
 	tp->snd_cwnd	   = 1;
 	/*snd_cwnd_cnt表示自从上次调整拥塞窗口到
@@ -177,25 +144,35 @@ void tcp_enter_loss(struct sock *sk)
 	tp->snd_cwnd_cnt   = 0;
 	/*记录最近一次检验拥塞窗口的时间*/
 	tp->snd_cwnd_stamp = tcp_time_stamp;
-	/*重传并且还未得到确认的TCP段的数目设置为零*/
+	/*设置重传的但还未得到确认的TCP段的数目为零*/
 	tp->retrans_out = 0;
 	/*丢失的包*/
 	tp->lost_out = 0;
-	/*查看当前的tp里是否由SACK选项字段，
-	有的话，返回1,没有的话返回0
-	根据这一点来判断是否需要重置tp中选择确认的包(sacked_out??? confused)的个数为0
+	/*
+		查看当前的tp里是否由SACK选项字段，
+		有的话，返回1,没有的话返回0
+		根据这一点来判断是否需要重置tp中选择确认的包的个数为0
 	*/
 	if (tcp_is_reno(tp))
 		tcp_reset_reno_sack(tp);
-	
+\end{minted}
+
+	关于tcp\_is\_reno更多的内容，请参见\ref{ACKCheck:IsSACK,IsReno,IsFack};
+	关于tcp\_reset\_reno\_sack更多的内容，请参见\ref{ACKUpdate:tcp_reset_reno_sack}.
+
+\begin{minted}[linenos]{C}
 	skb = tcp_write_queue_head(sk);
-	/*判断接受者是否认为SACK违约???怎么理解呢？*/
+	/*判断接受者是否认为SACK违约*/
 	is_reneg = skb && (TCP_SKB_CB(skb)->sacked & TCPCB_SACKED_ACKED);
 	if (is_reneg) {
 		NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_TCPSACKRENEGING);
 		tp->sacked_out = 0;
 		tp->fackets_out = 0;
 	}
+\end{minted}
+
+	关于违约的讲解的更多内容，请参见\ref{TCPFlag}.
+\begin{minted}[linenos]{C}
 	/*清除有关重传的记忆变量*/
 	tcp_clear_all_retrans_hints(tp);
 
@@ -217,7 +194,11 @@ void tcp_enter_loss(struct sock *sk)
 	}
 	/*确认没有被确认的TCP段的数量left_out*/
 	tcp_verify_left_out(tp);
+\end{minted}
 
+	关于tcp\_verify\_left\_out更多的内容，请参见\ref{WindowCompute:tcp_verify_left_out}。
+	
+\begin{minted}[linenos]{C}
 	/* Timeout in disordered state after receiving substantial DUPACKs
 	 * suggests that the degree of reordering is over-estimated.
 	 */

@@ -742,6 +742,7 @@ max: 用于TCP socket发送缓冲的内存最大值。该值不会影响net.core
                 为快速长距离网络启用 Binary Increase Congestion；这样可以更好地利用以 GB 速度进行操作的链接；对于 WAN 通信应该启用这个选项。
 \end{enumerate}
     \subsection{TCP 标志宏}
+		\label{TCPFlag}
 \begin{minted}[linenos]{C}
 #define FLAG_DATA       0x01        /* Incoming frame contained data.       */
 #define FLAG_WIN_UPDATE     0x02    /* Incoming ACK was a window update.    */
@@ -778,7 +779,7 @@ max: 用于TCP socket发送缓冲的内存最大值。该值不会影响net.core
                     但是，接收方可能会由于一些极端情况这么做，比如要把内存给别的更重要的东西。
                     所以，发送方也不能完全依赖SACK，主要还是要依赖ACK，并维护Time-Out。
                     如果后续的ACK没有增长，那么还是要把SACK的东西重传，另外，接收端这边永远不能把SACK的包标记为Ack。
-　　                    \color{red}{注意}：SACK会消费发送方的资源，试想，如果一个攻击者给数据发送方发一堆SACK的选项，
+　　                    \textcolor{red}{注意}：SACK会消费发送方的资源，试想，如果一个攻击者给数据发送方发一堆SACK的选项，
                     这会导致发送方开始要重传甚至遍历已经发出的数据，这会消耗很多发送端的资源。
 
 \item[D-SACK]       Duplicate SACK又称D-SACK，其主要使用了SACK来告诉发送方有哪些数据被重复接收了。
@@ -786,12 +787,18 @@ max: 用于TCP socket发送缓冲的内存最大值。该值不会影响net.core
                     如果SACK的第一个段的范围被SACK的第二个段覆盖，那么就是D-SACK。引入了D-SACK，有这么几个好处：
 　                      1）可以让发送方知道，是发出去的包丢了，还是回来的ACK包丢了。
 
-　　                        2）是不是自己的timeout太小了，导致重传。
+　　                     2）是不是自己的timeout太小了，导致重传。
 
 　                      3）网络上出现了先发的包后到的情况（又称reordering）
 
-　　                        4）网络上是不是把我的数据包给复制了。
+　　                     4）网络上是不是把我的数据包给复制了。
 \end{enumerate}
+
+        \textcolor{blue}{调用位置}:
+
+            \begin{enumerate}
+            	\item[1]        \ref{CongestionState:Loss}的tcp\_enter\_loss中调用。
+            \end{enumerate}
     \subsection{函数宏}
         \subsubsection{\mintinline{C}{before & after}}
             在一些需要判断序号前后的地方出现了\mintinline{c}{before()}和\mintinline{c}{after()}
@@ -1571,8 +1578,6 @@ static void tcp_replace_ts_recent(struct tcp_sock *tp, u32 seq)
 				\item[1]		\label{ClientReceiveSYN+ACK:tcp_ack}的tcp\_ack中调用。
 			\end{enumerate}
 
-=======
->>>>>>> cd93ac539a89d70ff012a439e70acc9709fec00f
     \subsection{\mintinline{c}{__tcp_push_pending_frames}}
 \begin{minted}[linenos]{c}
 /* 将等待在队列中的包全部发出。 */
@@ -1602,6 +1607,7 @@ void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
 \end{enumerate}
 	\subsection{ACK Check}
 		\subsubsection{\mintinline{C}{tcp_is_sack & tcp_is_reno & tcp_is_fack}}
+			\label{ACKCheck:IsSACK,IsReno,IsFack}
 \begin{minted}[linenos]{C}
 /* 
 Location:
@@ -1632,6 +1638,13 @@ static inline bool tcp_is_fack(const struct tcp_sock *tp)
     return tp->rx_opt.sack_ok & TCP_FACK_ENABLED;
 }
 \end{minted}
+
+        \textcolor{blue}{调用位置}:
+
+            \begin{enumerate}
+            	\item[1]        \ref{CongestionState:Loss}的tcp\_enter\_loss中调用。
+            \end{enumerate}
+
         \subsubsection{\mintinline{c}{tcp_ack_is_dubious}}
 			\label{ACKCheck:tcp_ack_is_dubious}
 \begin{minted}[linenos]{C}
@@ -1822,6 +1835,7 @@ static void tcp_snd_una_update(struct tcp_sock *tp, u32 ack)
 			\end{enumerate}
 
         \subsubsection{\mintinline{C}{tcp_reset_reno_sack}}
+			\label{ACKUpdate:tcp_reset_reno_sack}
 \begin{minted}[linenos]{C}
 /*
 Location:
@@ -1842,6 +1856,10 @@ static inline void tcp_reset_reno_sack(struct tcp_sock *tp)
     tp->sacked_out = 0;
 }
 \end{minted}    
+
+            \begin{enumerate}
+            	\item[1]        \ref{CongestionState:Loss}的tcp\_enter\_loss中调用。
+            \end{enumerate}
 
         \subsubsection{\mintinline{C}{tcp_add_reno_sack}}
 \begin{minted}[linenos]{C}
@@ -1878,6 +1896,7 @@ static inline unsigned int tcp_left_out(const struct tcp_sock *tp)
 }
 \end{minted}
         \subsubsection{\mintinline{C}{tcp_verify_left_out}}
+			\label{WindowCompute:tcp_verify_left_out}
             该函数的功能主要是判断left\_out是否大于packets\_out,当然，这是不可能的，因为
             前者是已经发送离开主机的未被确认的段数，而后者是已经离开发送队列(不一定离开主机)
             但未确认的段数。故而，这里有一个WARN\_ON，以便输出相应的警告信息。
@@ -1896,7 +1915,12 @@ Parameter:
 */
 #define tcp_verify_left_out(tp) WARN_ON(tcp_left_out(tp) > tp->packets_out)     
 \end{minted}
-<<<<<<< HEAD
+
+        \textcolor{blue}{调用位置}:
+
+            \begin{enumerate}
+            	\item[1]        \ref{CongestionState:Loss}的tcp\_enter\_loss中调用。
+            \end{enumerate}
 
 	\subsection{Window Update}
 		\subsubsection{\mintinline{C}{tcp_may_update_window}}
@@ -2006,11 +2030,8 @@ static int tcp_ack_update_window(struct sock *sk, const struct sk_buff *skb, u32
 			\end{enumerate}
 
 \section{TCP Urgent Data}
-		\subsubsection{相应标识}
-=======
-    \subsection{TCP Urgent Data}
+
         \subsubsection{相应标识}
->>>>>>> cd93ac539a89d70ff012a439e70acc9709fec00f
 \begin{minted}[linenos]{C}
 /*
 Location:
@@ -2196,7 +2217,86 @@ static void tcp_urg(struct sock *sk, struct sk_buff *skb, const struct tcphdr *t
             \end{enumerate}
 
 
-    \subsection{About Congestion Control}
+\subsection{Congestion Control}
+	\subsection{Congestion Control Window}
+		\subsubsection{\mintinline{C}{tcp_init_cwnd_reduction}}
+			\label{CongestionControlWindow:tcp_init_cwnd_reduction}
+\begin{minted}[linenos]{C}
+/* 
+Location
+
+	net/ipv4/tcp_input.c
+
+Function:
+	The cwnd reduction in CWR and Recovery uses the PRR algorithm in RFC 6937.
+	It computes the number of packets to send (sndcnt) based on packets newly
+	delivered:
+		1) If the packets in flight is larger than ssthresh, PRR spreads the
+		cwnd reductions across a full RTT.
+		2) Otherwise PRR uses packet conservation to send as much as delivered.
+		But when the retransmits are acked without further losses, PRR
+		slow starts cwnd up to ssthresh to speed up the recovery.
+
+Parameter:
+
+	sk:sock
+*/
+static void tcp_init_cwnd_reduction(struct sock *sk)
+{
+	struct tcp_sock *tp = tcp_sk(sk);
+	/*开始拥塞的时候下一个要发送的字节序号*/
+	tp->high_seq = tp->snd_nxt;
+	tp->tlp_high_seq = 0;
+	/*自从上次调整拥塞窗口到目前为止接收到的总ACK段数*/
+	tp->snd_cwnd_cnt = 0;
+	/*在进入Recovery状态时的拥塞窗口*/
+	tp->prior_cwnd = tp->snd_cwnd;
+	/*在恢复阶段给接收者新发送包的数量*/
+	tp->prr_delivered = 0;
+	/*在恢复阶段一共发送的包的数量*/
+	tp->prr_out = 0;
+	/*根据拥塞算法，计算新阈值*/
+	tp->snd_ssthresh = inet_csk(sk)->icsk_ca_ops->ssthresh(sk);
+	/*设置TCP_ECN_QUEUE_CWR标志，标识由于收到显式拥塞通知而进入拥塞状态*/
+	tcp_ecn_queue_cwr(tp);
+}
+\end{minted}
+        \textcolor{blue}{调用位置}:
+
+            \begin{enumerate}
+            	\item[1]        \ref{CongestionState:CWR}的tcp\_enter\_cwr中调用。
+            \end{enumerate}
+	\subsection{Congestion Control Window Undo}
+		\subsubsection{\mintinline{C}{tcp_init_undo}}
+			\label{CongestionControlWindowUndo:tcp_init_undo}
+\begin{minted}[linenos]{C}
+/*
+Location
+
+	net/ipv4/tcp_input.c
+
+Function
+
+	撤销初始化
+
+Parameter
+
+	tp: tcp sock
+*/
+
+static inline void tcp_init_undo(struct tcp_sock *tp)
+{
+	/*标记重传起始点*/
+	tp->undo_marker = tp->snd_una;
+	/* Retransmission still in flight may cause DSACKs later. */
+	tp->undo_retrans = tp->retrans_out ? : -1;
+}
+\end{minted}
+        \textcolor{blue}{调用位置}:
+
+            \begin{enumerate}
+            	\item[1]        \ref{CongestionState:Loss}的tcp\_enter\_loss中调用。
+            \end{enumerate}
         \subsubsection{\mintinline{C}{tcp_end_cwnd_reduction}}
 \begin{minted}[linenos]{C}
 /* 
@@ -2272,7 +2372,6 @@ static bool tcp_try_undo_recovery(struct sock *sk)
     return false;
 }
 \end{minted}
-    \subsection{About Congestion Control}
         \subsubsection{\mintinline{C}{sysctl_tcp_recovery}}
 \begin{minted}[linenos]{C}
 int sysctl_tcp_recovery __read_mostly = TCP_RACK_LOST_RETRANS;
