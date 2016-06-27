@@ -633,8 +633,8 @@ TCP发送keepalive探测以确定该连接已经断开的次数。(注意:保持
 系统在同时所处理的最大 timewait sockets 数目。如果超过此数的话﹐time-wait socket 会被立即砍除并且显示警告信息。之所以要设定这个限制﹐纯粹为了抵御那些简单的 DoS 攻击﹐千万不要人为的降低这个限制﹐不过﹐如果网络条件需要比默认值更多﹐则可以提高它(或许还要增加内存)。(事实上做NAT的时候最好可以适当地增加该值)
 
 \item[tcp\_tw\_recycle] BOOLEAN,
-默认值是0
-打开快速 TIME-WAIT sockets 回收。除非得到技术专家的建议或要求﹐请不要随意修改这个值。(做NAT的时候，建议打开它)
+						默认值是0,
+						打开快速 TIME-WAIT sockets 回收。除非特别熟悉，否则，请不要随意修改这个值。建议做NAT的时候打开。
 
 \item[tcp\_tw\_reuse] BOOLEAN,
 默认值是0
@@ -704,11 +704,11 @@ default：为TCP socket预留用于发送缓冲的内存数量，默认情况下
 max: 用于TCP socket发送缓冲的内存最大值。该值不会影响net.core.wmem\_max，"静态"选择参数SO\_SNDBUF则不受该值影响。默认值为131072(128K)。（对于服务器而言，增加这个参数的值对于发送数据很有帮助,在我的网络环境中,修改为了51200 131072 204800）
 
 \item[tcp\_rmem ] (3个INTEGER变量)min, default, max。
-min：为TCP socket预留用于接收缓冲的内存数量，即使在内存出现紧张情况下tcp socket都至少会有这么多数量的内存用于接收缓冲，默认值为8K。
+				min：为TCP socket预留用于接收缓冲的内存数量，即使在内存出现紧张情况下tcp socket都至少会有这么多数量的内存用于接收缓冲，默认值为8K。
 
-default：为TCP socket预留用于接收缓冲的内存数量，默认情况下该值影响其它协议使用的net.core.wmem\_default 值。该值决定了在tcp\_adv\_win\_scale、tcp\_app\_win和tcp\_app\_win=0默认值情况下，TCP窗口大小为65535。默认值为87380
+				default：为TCP socket预留用于接收缓冲的内存数量，默认情况下该值影响其它协议使用的net.core.wmem\_default 值。该值决定了在tcp\_adv\_win\_scale、tcp\_app\_win和tcp\_app\_win=0默认值情况下，TCP窗口大小为65535。默认值为87380
 
-max：用于TCP socket接收缓冲的内存最大值。该值不会影响 net.core.wmem\_max，"静态"选择参数 SO\_SNDBUF则不受该值影响。默认值为 128K。默认值为87380*2 bytes。（可以看出，.max的设置最好是default的两倍,对于NAT来说主要该增加它,我的网络里为 51200 131072 204800）
+				max：用于TCP socket接收缓冲的内存最大值。该值不会影响 net.core.wmem\_max，"静态"选择参数 SO\_SNDBUF则不受该值影响。默认值为 128K。默认值为87380*2 bytes。（可以看出，.max的设置最好是default的两倍,对于NAT来说主要该增加它,我的网络里为 51200 131072 204800）
 
 \item[tcp\_mem] (3个INTEGER变量)low, pressure, high。
                     low：当TCP使用了低于该值的内存页面数时，TCP不会考虑释放内存。(理想情况下，这个值应与指定给 tcp\_wmem 的第 2 个值相匹配 - 这第 2 个值表明，最大页面大小乘以最大并发请求数除以页大小 (131072 * 300 / 4096)。 )
@@ -1458,8 +1458,56 @@ static inline bool tcp_paws_check(const struct tcp_options_received *rx_opt,
 	return false;
 }
 \end{minted}
+	\subsection{\mintinline{C}{tcp_paws_reject}}
+		\label{TCPPAWS:tcp_paws_reject}
+\begin{minted}[linenos]{C}
+/*
+Location:
 
+	include/net/tcp.h
 
+Function:
+
+	判断是否要拒绝
+
+Parameter:
+	
+	rx_opt:接收到的tcp选项。
+	rst:
+*/
+static inline bool tcp_paws_reject(const struct tcp_options_received *rx_opt,
+				   int rst)
+{
+	/*检测是否通过PAWS检测*/
+	if (tcp_paws_check(rx_opt, 0))
+		return false;
+
+	/* RST segments are not recommended to carry timestamp,
+	   and, if they do, it is recommended to ignore PAWS because
+	   "their cleanup function should take precedence over timestamps."
+	   Certainly, it is mistake. It is necessary to understand the reasons
+	   of this constraint to relax it: if peer reboots, clock may go
+	   out-of-sync and half-open connections will not be reset.
+	   Actually, the problem would be not existing if all
+	   the implementations followed draft about maintaining clock
+	   via reboots. Linux-2.2 DOES NOT!
+
+	   However, we can relax time bounds for RST segments to MSL.
+	 */
+	/*
+		如果收到了rst，并且还没有超时，就不拒绝
+	*/
+	if (rst && get_seconds() >= rx_opt->ts_recent_stamp + TCP_PAWS_MSL)
+		return false;
+	return true;
+}
+\end{minted}
+
+		\textcolor{blue}{调用位置}:
+			\begin{enumerate}
+				\item[1]		\label{ClientReceiveFIN:tcp_timewait_state_process}的tcp\_timewait\_state\_process中调用。
+			\end{enumerate}
+		
 \section{TCP TimeStamp}
 	\subsection{\mintinline{C}{tcp_store_ts_recent}}
 \begin{minted}[linenos]{C}
@@ -2143,23 +2191,11 @@ static void tcp_urg(struct sock *sk, struct sk_buff *skb, const struct tcphdr *t
         \textcolor{blue}{调用位置}:
 
             \begin{enumerate}
-            \item[1]        \ref{SYN+ACK:tcp_rcv_state_process}的tcp\_rcv\_state\_process中调用。
+				\item[1]        \ref{SYN+ACK:tcp_rcv_state_process}的tcp\_rcv\_state\_process中调用。
+				\item[2]		\ref{ClientReceiveACK:tcp_rcv_state_process}的tcp\_rcv\_state\_process中调用。				
             \end{enumerate}
 
-    \subsection{\mintinline{c}{tcp_fin_time}}
-        计算等待接收FIN的超时时间。超时时间至少为$\frac{7}{2}$倍的rto。
-\begin{minted}[linenos]{c}
-static inline int tcp_fin_time(const struct sock *sk)
-{
-        int fin_timeout = tcp_sk(sk)->linger2 ? : sysctl_tcp_fin_timeout;
-        const int rto = inet_csk(sk)->icsk_rto;
 
-        if (fin_timeout < (rto << 2) - (rto >> 1))
-                fin_timeout = (rto << 2) - (rto >> 1);
-
-        return fin_timeout;
-}
-\end{minted}
     \subsection{About Congestion Control}
         \subsubsection{\mintinline{C}{tcp_end_cwnd_reduction}}
 \begin{minted}[linenos]{C}
@@ -2361,7 +2397,7 @@ void tcp_rack_advance(struct tcp_sock *tp,
     tp->rack.advanced = 1;
 }
 \end{minted}
-        \subsubsection{\mintinline{C}{}}
+        \subsubsection{\mintinline{C}{tcp_try_undo_dsack}}
 \begin{minted}[linenos]{C}
 /*
 Location:
@@ -2514,6 +2550,41 @@ static bool tcp_try_undo_partial(struct sock *sk, const int acked,
 /* Use TCP RACK to detect (some) tail and retransmit losses */
 #define TCP_RACK_LOST_RETRANS  0x1
 \end{minted}
+
+\section{TCP Finish}
+	\subsection{\mintinline{C}{Time Compute}}
+    	\subsubsection{\mintinline{c}{tcp_fin_time}}
+        	计算等待接收FIN的超时时间。超时时间至少为$\frac{7}{2}$倍的rto。
+\begin{minted}[linenos]{c}
+/*
+Location
+
+	include/net/tcp.h
+
+Function:
+
+	计算等待接收FIN的超时时间。
+
+Parameter
+
+	sk:sock块。
+*/
+static inline int tcp_fin_time(const struct sock *sk)
+{
+        int fin_timeout = tcp_sk(sk)->linger2 ? : sysctl_tcp_fin_timeout;
+        const int rto = inet_csk(sk)->icsk_rto;
+
+        if (fin_timeout < (rto << 2) - (rto >> 1))
+                fin_timeout = (rto << 2) - (rto >> 1);
+
+        return fin_timeout;
+}
+\end{minted}
+        \textcolor{blue}{调用位置}:
+
+            \begin{enumerate}
+            	\item[1]        \ref{ClientReceiveACK:tcp_rcv_state_process}的tcp\_rcv\_state\_process中调用。
+            \end{enumerate}
 
 \subsection{\mintinline{c}{tcp_done}}
 \begin{minted}[linenos]{c}
