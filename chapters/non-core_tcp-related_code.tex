@@ -1396,164 +1396,145 @@ static unsigned int tcp_established_options(struct sock *sk, struct sk_buff *skb
 }
 \end{minted}
 
-<<<<<<< HEAD
-		\textcolor{blue}{调用位置}:
-			\begin{enumerate}
-				\item[1]		\label{Server:tcp_conn_request}的tcp\_conn\_request中调用。
-			\end{enumerate}
+        \textcolor{blue}{调用位置}:
+            \begin{enumerate}
+                \item[1]        \label{Server:tcp_conn_request}的tcp\_conn\_request中调用。
+            \end{enumerate}
 
 \section{TCP PAWS}
-	\subsection{TCP PAWS Flags}
+    \subsection{TCP PAWS Flags}
 \begin{minted}[linenos]{C}
 /*
 Location
 
-	include/net/tcp.h
+    include/net/tcp.h
 */
-#define TCP_PAWS_24DAYS	(60 * 60 * 24 * 24)
-#define TCP_PAWS_MSL	60		/* Per-host timestamps are invalidated
-					 			* after this time. It should be equal
-					 			* (or greater than) TCP_TIMEWAIT_LEN
-					 			* to provide reliability equal to one
-					 			* provided by timewait state.
-								*/
-#define TCP_PAWS_WINDOW	1		/* Replay window for per-host
-								 * timestamps. It must be less than
-					 			 * minimal timewait lifetime.
-					 			*/
+#define TCP_PAWS_24DAYS (60 * 60 * 24 * 24)
+#define TCP_PAWS_MSL    60      /* Per-host timestamps are invalidated
+                                * after this time. It should be equal
+                                * (or greater than) TCP_TIMEWAIT_LEN
+                                * to provide reliability equal to one
+                                * provided by timewait state.
+                                */
+#define TCP_PAWS_WINDOW 1       /* Replay window for per-host
+                                 * timestamps. It must be less than
+                                 * minimal timewait lifetime.
+                                */
 \end{minted}
 
-	\subsection{\mintinline{C}{tcp_paws_check}}
+    \subsection{\mintinline{C}{tcp_paws_check}}
 
 \begin{minted}[linenos]{C}
 /*
 Location:
 
-	include/net/tcp.h
+    include/net/tcp.h
 
 Function:
 
-	序号绕回检测。
+    序号绕回检测。
 
 Parameter:
-	
-	rx_opt:接收到的tcp选项。
-	paws_win:
+    
+    rx_opt:接收到的tcp选项。
+    paws_win:
 */
 static inline bool tcp_paws_check(const struct tcp_options_received *rx_opt,
-				  int paws_win)
+                  int paws_win)
 {
-	if ((s32)(rx_opt->ts_recent - rx_opt->rcv_tsval) <= paws_win)
-		return true;
-	/*判断从存储ts_recent到现在是否有24天的时间,有的话，就可能失效*/
-	if (unlikely(get_seconds() >= rx_opt->ts_recent_stamp + TCP_PAWS_24DAYS))
-		return true;
-	/*
-	 * Some OSes send SYN and SYNACK messages with tsval=0 tsecr=0,
-	 * then following tcp messages have valid values. Ignore 0 value,
-	 * or else 'negative' tsval might forbid us to accept their packets.
-	 */
-	if (!rx_opt->ts_recent)
-		return true;
-	return false;
+    if ((s32)(rx_opt->ts_recent - rx_opt->rcv_tsval) <= paws_win)
+        return true;
+    /*判断从存储ts_recent到现在是否有24天的时间,有的话，就可能失效*/
+    if (unlikely(get_seconds() >= rx_opt->ts_recent_stamp + TCP_PAWS_24DAYS))
+        return true;
+    /*
+     * Some OSes send SYN and SYNACK messages with tsval=0 tsecr=0,
+     * then following tcp messages have valid values. Ignore 0 value,
+     * or else 'negative' tsval might forbid us to accept their packets.
+     */
+    if (!rx_opt->ts_recent)
+        return true;
+    return false;
 }
 \end{minted}
 
 
 \section{TCP TimeStamp}
-	\subsection{\mintinline{C}{tcp_store_ts_recent}}
+    \subsection{\mintinline{C}{tcp_store_ts_recent}}
 \begin{minted}[linenos]{C}
 /*
 Location
 
-	net/ipv4/tcp_input.c
+    net/ipv4/tcp_input.c
 
 Function:
 
-	替换时间戳ts_recent
+    替换时间戳ts_recent
 
 Parameter:
 
-	tp:TCP sock
+    tp:TCP sock
 */
 static void tcp_store_ts_recent(struct tcp_sock *tp)
 {
-	/*替换时间戳为刚刚接收到的时间戳值*/
-	tp->rx_opt.ts_recent = tp->rx_opt.rcv_tsval;
-	/*记录下替换时间戳的时间*/
-	tp->rx_opt.ts_recent_stamp = get_seconds();
+    /*替换时间戳为刚刚接收到的时间戳值*/
+    tp->rx_opt.ts_recent = tp->rx_opt.rcv_tsval;
+    /*记录下替换时间戳的时间*/
+    tp->rx_opt.ts_recent_stamp = get_seconds();
 }
 \end{minted}
-	\subsection{\mintinline{C}{tcp_replace_ts_recent}}
-		\label{TCPTimestamp:tcp_replace_ts_recent}
+    \subsection{\mintinline{C}{tcp_replace_ts_recent}}
+        \label{TCPTimestamp:tcp_replace_ts_recent}
 \begin{minted}[linenos]{C}
 /*
 Location
 
-	net/ipv4/tcp_input.c
+    net/ipv4/tcp_input.c
 
 Function:
 
-	考虑是否要替换时间戳ts_recent
+    考虑是否要替换时间戳ts_recent
 
 Parameter:
 
-	tp:TCP sock
-	seq:
+    tp:TCP sock
+    seq:
 
 */
 static void tcp_replace_ts_recent(struct tcp_sock *tp, u32 seq)
 {
-	if (tp->rx_opt.saw_tstamp && !after(seq, tp->rcv_wup)) {
-		/* PAWS bug workaround wrt. ACK frames, the PAWS discard
-		 * extra check below makes sure this can only happen
-		 * for pure ACK frames.  -DaveM
-		 *
-		 * Not only, also it occurs for expired timestamps.
-		 */
-		/*PAWS检测成功*/
-		if (tcp_paws_check(&tp->rx_opt, 0))
-			tcp_store_ts_recent(tp);
-	}
+    if (tp->rx_opt.saw_tstamp && !after(seq, tp->rcv_wup)) {
+        /* PAWS bug workaround wrt. ACK frames, the PAWS discard
+         * extra check below makes sure this can only happen
+         * for pure ACK frames.  -DaveM
+         *
+         * Not only, also it occurs for expired timestamps.
+         */
+        /*PAWS检测成功*/
+        if (tcp_paws_check(&tp->rx_opt, 0))
+            tcp_store_ts_recent(tp);
+    }
 }
 \end{minted}
 
-		\textcolor{blue}{调用位置}:
-			\begin{enumerate}
-				\item[1]		\label{ClientReceiveSYN+ACK:tcp_ack}的tcp\_ack中调用。
-			\end{enumerate}
+        \textcolor{blue}{调用位置}:
+            \begin{enumerate}
+                \item[1]        \label{ClientReceiveSYN+ACK:tcp_ack}的tcp\_ack中调用。
+            \end{enumerate}
 
-=======
->>>>>>> cd93ac539a89d70ff012a439e70acc9709fec00f
-    \subsection{\mintinline{c}{__tcp_push_pending_frames}}
-\begin{minted}[linenos]{c}
-/* 将等待在队列中的包全部发出。 */
-void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
-                               int nonagle)
-{
-        /* 如果此时连接已经关闭了，那么直接返回。*/
-        if (unlikely(sk->sk_state == TCP_CLOSE))
-                return;
-
-        /* 关闭nagle算法，将剩余的部分发送出去。 */
-        if (tcp_write_xmit(sk, cur_mss, nonagle, 0,
-                           sk_gfp_atomic(sk, GFP_ATOMIC)))
-                tcp_check_probe_timer(sk);
-}
-\end{minted}
 \section{TCP ACK}
-	ACK机制与数据传输紧密关联可以体现在以下几个方面。
+    ACK机制与数据传输紧密关联可以体现在以下几个方面。
 \begin{enumerate}
-\item[1]	通过ACK可以使得发送方可以很容易地计算出数据往返时间。
-\item[2]	因为ACK段中携带接收方的通告窗口，因此，此时接收方能
-			接收的数据上限为通告的接收窗口大小，接收到ACK后，在正常
-			情况下会引发下一个段的发送。
-\item[3]	通过拥塞窗口的调节，TCP可以进行限制性地传输，以免网络
-			拥塞。从接收ACK可以判断和评估当前网络的状况，从而进一步调整
-			拥塞窗口。
+\item[1]    通过ACK可以使得发送方可以很容易地计算出数据往返时间。
+\item[2]    因为ACK段中携带接收方的通告窗口，因此，此时接收方能
+            接收的数据上限为通告的接收窗口大小，接收到ACK后，在正常
+            情况下会引发下一个段的发送。
+\item[3]    通过拥塞窗口的调节，TCP可以进行限制性地传输，以免网络
+            拥塞。从接收ACK可以判断和评估当前网络的状况，从而进一步调整
+            拥塞窗口。
 \end{enumerate}
-	\subsection{ACK Check}
-		\subsubsection{\mintinline{C}{tcp_is_sack & tcp_is_reno & tcp_is_fack}}
+    \subsection{ACK Check}
+        \subsubsection{\mintinline{C}{tcp_is_sack & tcp_is_reno & tcp_is_fack}}
 \begin{minted}[linenos]{C}
 /* 
 Location:
@@ -1585,7 +1566,7 @@ static inline bool tcp_is_fack(const struct tcp_sock *tp)
 }
 \end{minted}
         \subsubsection{\mintinline{c}{tcp_ack_is_dubious}}
-			\label{ACKCheck:tcp_ack_is_dubious}
+            \label{ACKCheck:tcp_ack_is_dubious}
 \begin{minted}[linenos]{C}
 /*
 Location:
@@ -1620,10 +1601,10 @@ static inline bool tcp_ack_is_dubious(const struct sock *sk, const int flag)
 \item[非Open]           即当前拥塞状态不为Open。
 \end{enumerate}
 
-		\textcolor{blue}{调用位置}:
-			\begin{enumerate}
-				\item[1]		\label{ClientReceiveSYN+ACK:tcp_ack}的tcp\_ack中调用。
-			\end{enumerate}
+        \textcolor{blue}{调用位置}:
+            \begin{enumerate}
+                \item[1]        \label{ClientReceiveSYN+ACK:tcp_ack}的tcp\_ack中调用。
+            \end{enumerate}
 
         \subsubsection{\mintinline{C}{tcp_check_sack_reneging}}
             如果接收到的确认ACK指向之前记录的SACK，这说明之前记录的SACK并没有反映接收方的真实状态。
@@ -1737,41 +1718,41 @@ static void tcp_check_reno_reordering(struct sock *sk, const int addend)
         tcp_update_reordering(sk, tp->packets_out + addend, 0);//???这个函数到底时用于干什么呢？
 }
 \end{minted}
-	\subsection{ACK Update}
-		\subsubsection{\mintinline{C}{tcp_snd_una_update}}
-			\label{ACKUpdate:tcp_snd_una_update}
+    \subsection{ACK Update}
+        \subsubsection{\mintinline{C}{tcp_snd_una_update}}
+            \label{ACKUpdate:tcp_snd_una_update}
 \begin{minted}[linenos]{C}
 /* 
 Location:
 
-	net/ipv4/tcp_input.c
+    net/ipv4/tcp_input.c
 
 Description:
 
-	If we update tp->snd_una, also update tp->bytes_acked */
+    If we update tp->snd_una, also update tp->bytes_acked */
 
 Parameter:
-	
-	tp:tcp sock
-	ack:确认号
+    
+    tp:tcp sock
+    ack:确认号
 static void tcp_snd_una_update(struct tcp_sock *tp, u32 ack)
 {
-	/*得到已经确认的数量*/
-	u32 delta = ack - tp->snd_una;
+    /*得到已经确认的数量*/
+    u32 delta = ack - tp->snd_una;
 
-	/*记录已经得到确认的字节数量*/
-	u64_stats_update_begin(&tp->syncp);
-	tp->bytes_acked += delta;
-	u64_stats_update_end(&tp->syncp);
-	/*更新una*/
-	tp->snd_una = ack;
+    /*记录已经得到确认的字节数量*/
+    u64_stats_update_begin(&tp->syncp);
+    tp->bytes_acked += delta;
+    u64_stats_update_end(&tp->syncp);
+    /*更新una*/
+    tp->snd_una = ack;
 }
 \end{minted}
 
-		\textcolor{blue}{调用位置}:
-			\begin{enumerate}
-				\item[1]		\label{ClientReceiveSYN+ACK:tcp_ack}的tcp\_ack中调用。
-			\end{enumerate}
+        \textcolor{blue}{调用位置}:
+            \begin{enumerate}
+                \item[1]        \label{ClientReceiveSYN+ACK:tcp_ack}的tcp\_ack中调用。
+            \end{enumerate}
 
         \subsubsection{\mintinline{C}{tcp_reset_reno_sack}}
 \begin{minted}[linenos]{C}
@@ -1820,7 +1801,7 @@ static void tcp_add_reno_sack(struct sock *sk)
 }
 \end{minted}
 \section{TCP Window}
-  	\subsection{Window Compute}
+    \subsection{Window Compute}
         \subsubsection{\mintinline{C}{tcp_left_out}}
             该函数用于计算已经发出去的TCP段(离开主机)中一共有多少个tcp段还未得到确认。
 \begin{minted}[linenos]{C}
@@ -1848,121 +1829,117 @@ Parameter:
 */
 #define tcp_verify_left_out(tp) WARN_ON(tcp_left_out(tp) > tp->packets_out)     
 \end{minted}
-<<<<<<< HEAD
 
-	\subsection{Window Update}
-		\subsubsection{\mintinline{C}{tcp_may_update_window}}
-			\label{WindowUpdate:tcp_may_update_window}
+    \subsection{Window Update}
+        \subsubsection{\mintinline{C}{tcp_may_update_window}}
+            \label{WindowUpdate:tcp_may_update_window}
 \begin{minted}[linenos]{C}
 /* 
 Location:
 
-	net/ipv4/tcp_input.c
+    net/ipv4/tcp_input.c
 
 Function:
 
-	Check that window update is acceptable.
-	The function assumes that snd_una<=ack<=snd_next.
+    Check that window update is acceptable.
+    The function assumes that snd_una<=ack<=snd_next.
 
 Parameter:
 
-	tp:tcp sock
-	ack:起始序列号
-	ack_seq:确认序列号
-	nwin:窗口大小
+    tp:tcp sock
+    ack:起始序列号
+    ack_seq:确认序列号
+    nwin:窗口大小
 */
 static inline bool tcp_may_update_window(const struct tcp_sock *tp,
-					const u32 ack, const u32 ack_seq,
-					const u32 nwin)
+                    const u32 ack, const u32 ack_seq,
+                    const u32 nwin)
 {
-	/*
-		三种情况成立一种
-			1.起始序列号大于una
-			2.确认号大于窗口的左端
-			3.确认号等于窗口的左端，同时，窗口大于本身的发送窗口
-	*/
-	return	after(ack, tp->snd_una) ||
-		after(ack_seq, tp->snd_wl1) ||
-		(ack_seq == tp->snd_wl1 && nwin > tp->snd_wnd);
+    /*
+        三种情况成立一种
+            1.起始序列号大于una
+            2.确认号大于窗口的左端
+            3.确认号等于窗口的左端，同时，窗口大于本身的发送窗口
+    */
+    return  after(ack, tp->snd_una) ||
+        after(ack_seq, tp->snd_wl1) ||
+        (ack_seq == tp->snd_wl1 && nwin > tp->snd_wnd);
 }
 \end{minted}
-		\subsubsection{\mintinline{C}{tcp_ack_update_window}}
-			\label{WindowUpdate:tcp_ack_update_window}
+        \subsubsection{\mintinline{C}{tcp_ack_update_window}}
+            \label{WindowUpdate:tcp_ack_update_window}
 \begin{minted}[linenos]{C}
 /* 
 Location:
 
-	net/ipv4/tcp_input.c
+    net/ipv4/tcp_input.c
 
 Description:
 
-	Update our send window.
+    Update our send window.
 
-	Window update algorithm, described in RFC793/RFC1122 (used in linux-2.2
-	and in FreeBSD. NetBSD's one is even worse.) is wrong.
+    Window update algorithm, described in RFC793/RFC1122 (used in linux-2.2
+    and in FreeBSD. NetBSD's one is even worse.) is wrong.
 
 Parameter:
 
-	sk:传输控制块
-	skb:缓存块
-	ack:	
-	ack_seq:
+    sk:传输控制块
+    skb:缓存块
+    ack:    
+    ack_seq:
 */
 static int tcp_ack_update_window(struct sock *sk, const struct sk_buff *skb, u32 ack,
-				 u32 ack_seq)
+                 u32 ack_seq)
 {
-	struct tcp_sock *tp = tcp_sk(sk);
-	int flag = 0;
-	/*得到接收窗口大小*/
-	u32 nwin = ntohs(tcp_hdr(skb)->window);
-	/*判断是否有syn，没有的话，窗口扩大*/
-	if (likely(!tcp_hdr(skb)->syn))
-		nwin <<= tp->rx_opt.snd_wscale;
+    struct tcp_sock *tp = tcp_sk(sk);
+    int flag = 0;
+    /*得到接收窗口大小*/
+    u32 nwin = ntohs(tcp_hdr(skb)->window);
+    /*判断是否有syn，没有的话，窗口扩大*/
+    if (likely(!tcp_hdr(skb)->syn))
+        nwin <<= tp->rx_opt.snd_wscale;
 
-	if (tcp_may_update_window(tp, ack, ack_seq, nwin)) {
-		/*表明要更新*/
-		flag |= FLAG_WIN_UPDATE;
-		/*tp->snd_wl1 = seq*/
-		tcp_update_wl(tp, ack_seq);
-		/*更新本端发送窗口*/
-		if (tp->snd_wnd != nwin) {
-			tp->snd_wnd = nwin;
+    if (tcp_may_update_window(tp, ack, ack_seq, nwin)) {
+        /*表明要更新*/
+        flag |= FLAG_WIN_UPDATE;
+        /*tp->snd_wl1 = seq*/
+        tcp_update_wl(tp, ack_seq);
+        /*更新本端发送窗口*/
+        if (tp->snd_wnd != nwin) {
+            tp->snd_wnd = nwin;
 
-			/* Note, it is the only place, where
-			 * fast path is recovered for sending TCP.
-			 */
-			/*取消头部预测*/
-			tp->pred_flags = 0;
-			/*快速路径检测*/
-			tcp_fast_path_check(sk);
-			/*??*/
-			if (tcp_send_head(sk))
-				tcp_slow_start_after_idle_check(sk);
-			/*如果接收窗口大于之前的最大的接收窗口，更新，重新计算MSS*/
-			if (nwin > tp->max_window) {
-				tp->max_window = nwin;
-				tcp_sync_mss(sk, inet_csk(sk)->icsk_pmtu_cookie);
-			}
-		}
-	}
-	/*更新una*/
-	tcp_snd_una_update(tp, ack);
+            /* Note, it is the only place, where
+             * fast path is recovered for sending TCP.
+             */
+            /*取消头部预测*/
+            tp->pred_flags = 0;
+            /*快速路径检测*/
+            tcp_fast_path_check(sk);
+            /*??*/
+            if (tcp_send_head(sk))
+                tcp_slow_start_after_idle_check(sk);
+            /*如果接收窗口大于之前的最大的接收窗口，更新，重新计算MSS*/
+            if (nwin > tp->max_window) {
+                tp->max_window = nwin;
+                tcp_sync_mss(sk, inet_csk(sk)->icsk_pmtu_cookie);
+            }
+        }
+    }
+    /*更新una*/
+    tcp_snd_una_update(tp, ack);
 
-	return flag;
+    return flag;
 }
 \end{minted}
 
-		\textcolor{blue}{调用位置}:
-			\begin{enumerate}
-				\item[1]		\label{ClientReceiveSYN+ACK:tcp_ack}的tcp\_ack中调用。
-			\end{enumerate}
+        \textcolor{blue}{调用位置}:
+            \begin{enumerate}
+                \item[1]        \label{ClientReceiveSYN+ACK:tcp_ack}的tcp\_ack中调用。
+            \end{enumerate}
 
 \section{TCP Urgent Data}
-		\subsubsection{相应标识}
-=======
-    \subsection{TCP Urgent Data}
         \subsubsection{相应标识}
->>>>>>> cd93ac539a89d70ff012a439e70acc9709fec00f
+
 \begin{minted}[linenos]{C}
 /*
 Location:
