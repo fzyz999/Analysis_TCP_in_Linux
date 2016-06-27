@@ -226,13 +226,13 @@ void tcp_enter_loss(struct sock *sk)
 
 	\subsection{显式拥塞通知(ECN)}
 		在处理网络中的拥塞的时候，有一种方法叫做显式拥塞控制。从名字上看就是，
-		我们会直接收到关于拥塞的通知。至于是如何实现呢？我这里显简单说一下原理，
-		然后在细细说明。当TCP传递的时候，路由器使用IP首部的一对比特位来记录是否
-		出现了拥塞。这样，当TCP段到达后，接收方知道报文段是否在某个位置经历过拥塞
+		我们会直接收到关于拥塞的通知。至于是如何实现呢？我这里先简单说一下原理，
+		然后再细细说明。当TCP传递的时候，路由器使用IP首部的一对比特位来记录是否
+		出现了拥塞。这样，当TCP段到达后，接收方知道报文段是否在某个位置经历过拥塞。
 		但是，需要注意的是，发送方才是真正需要了解是否发生了拥塞状况。因此，接收方使用
 		下一个ACK通知发送方有拥塞发生。然后，发送方作出响应，缩小自己的拥塞窗口。
 
-		我们直到路由器是网络层的设备，所以说，如果想要路由器帮忙记录拥塞控制就必然需要IP的支持。
+		我们知道路由器是网络层的设备，所以说，如果想要路由器帮忙记录拥塞控制就必然需要IP的支持。
 		当然，除此之外，也需要TCP层的支持。
 
 		下面是具体的叙述。
@@ -256,19 +256,22 @@ enum {
 \end{minted}
 
 
-			当路由器检测到拥塞的时候，当然在设置之前会检测之前是否出现了
-			拥塞，如果没有就设置ECN域为11。
+			当路由器检测到拥塞的时候，设置ECN域为11。当然在设置之前会检测之前是否出现了
+			拥塞。没有的时候再进行设置。
 
 \begin{minted}[linenos]{C}
-\*
+/*
 Location:
 
 	include/net/inet_ecn.h
 
 Function:
 
+
 Parameter:
-*\
+
+	iph:ip头部。
+*/
 static inline int IP_ECN_set_ce(struct iphdr *iph)
 {
 	u32 check = (__force u32)iph->check;		//force???，为啥32位
@@ -281,7 +284,8 @@ static inline int IP_ECN_set_ce(struct iphdr *iph)
 	 * INET_ECN_ECT_0   => 11
 	 * INET_ECN_CE      => 00
 	 */
-	if (!(ecn & 2))			//不支持ECN的返回0。已经设置拥塞的不重复设置，返回。
+	/*不支持ECN的返回0,已经设置拥塞的不重复设置，返回。*/
+	if (!(ecn & 2))			
 		return !ecn;
 	
 	/*
@@ -297,7 +301,7 @@ static inline int IP_ECN_set_ce(struct iphdr *iph)
 }
 \end{minted}
 
-		这里计算校验码需要我们仔细分析以下，remain to do.????
+		这里计算校验码需要我们仔细分析一下，remain to do.????
 		
 		\subsubsection{TCP对ECN的支持}
 			路由器使用IP包的相关域来设置相关标志位来表示是否发生了拥塞.而主机使用TCP的首部来告知发送方,网络正在经历拥塞。
@@ -335,44 +339,11 @@ static inline int IP_ECN_set_ce(struct iphdr *iph)
 \end{minted}
 
 	\subsection{拥塞控制状态的处理及转换}
-		\mintinline{C}{tcp_ack}用于处理ACK段,通过处理ACK，TCP可以进行拥塞控制和流控制.
-		这里我们只是涉及和拥塞控制有关的代码.
-\begin{minted}[linenos]{C}
-/*
-Location:
-
-	net/ipv4/tcp_input.c
-
-Function:
-
-	处理ack段
-
-Parameter
-	待写.
-		
-*/
-static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
-	/*省略无关代码*/
-	/*
-		tcp_ack_is_dubious用于判断
-			1.ACK是不是重复的
-			2.是不是带有SACK选项并且有ECE	
-			3.是不是Open态
-		只要有一项为真就会返回1.
-	*/
-	if (tcp_ack_is_dubious(sk, flag)) {
-		/*FLAG_NOT_DUP=FLAG_DATA|FLAG_WIN_UPDATE|FLAG_ACKED
-					  =FLAG_DATA|FLAG_WIN_UPDATE|FLAG_DATA_ACKED|FLAG_SYN_ACKED
-		  FLAG_SND_UNA_ADVANCED: Snd_una was changed (!= FLAG_DATA_ACKED) 
-
-		*/		
-		is_dupack = !(flag & (FLAG_SND_UNA_ADVANCED | FLAG_NOT_DUP));
-		/*进入拥塞控制处理*/
-		tcp_fastretrans_alert(sk, acked, prior_unsacked,is_dupack, flag);
-	}
-	/*省略无关代码*/
-\end{minted}
+		在\label{ClientReceiveSYN+ACK:tcp_ack}章，客户端在第二次连接的时候会调用tcp\_ack
+		我们对其分析后，发现其中会调用tcp\_fastretrans\_alert拥塞控制状态处理函数，这里我
+		们就主要讲解这一函数。
 		\subsubsection{拥塞控制状态处理:\mintinline{C}{tcp_fastretrans_alert}}
+			\label{CongestionDeal:tcp_fastretrans_alert}
 \begin{minted}[linenos]{C}
 /* 
 Location:
@@ -395,7 +366,7 @@ Function:
 Parameter:
 
 	sk:传输控制块.
-	acked:
+	acked:得到确认的包的数量
 	prior_unsacked:在拥塞控制状态转换之前,从发送队列
 				   发出而未得到确认的TCP段的数目.
 	is_dupack:是否有重复ACK??需要好好分析分析。
@@ -418,8 +389,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 	if (WARN_ON(!tp->packets_out && tp->sacked_out))
 		tp->sacked_out = 0;
 	/*
-		如果选择确认的包的数量为零，并且未确认与已选择确认之间存在段，似乎存在矛盾？
-		to do.
+		如果选择确认的包的数量为零，并且未确认与已选择确认之间存在段
 	*/
 	if (WARN_ON(!tp->sacked_out && tp->fackets_out))
 		tp->fackets_out = 0;
@@ -445,24 +415,29 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 	if (tcp_check_sack_reneging(sk, flag))
 		return;
 \end{minted}
-
-	检查当前当前状态的一致性。???what dose if mean???
+	
+	关于tcp\_check\_sack\_reneging更多的内容，请参见\ref{TCPACKCheck:tcp_check_sack_reneging}。
+	
 \begin{minted}[linenos]{C}
 	/* C. Check consistency of the current state. */
 	tcp_verify_left_out(tp);
 \end{minted}
 
-	检测从拥塞状态返回的条件，当high\_seq被确认时，结束拥塞状态，进入Open状态。
+	查看是否从发送队列发出的包的数量是否不小于发出主机的包的数量。
+	
+	关于tcp\_verify\_left\_out的更多的内容，请参见\ref{WindowCompute:tcp_verify_left_out}.
+	
+	接下来检测从拥塞状态返回的条件，当high\_seq被确认时，结束拥塞状态，进入Open状态。
 \begin{minted}[linenos]{C}
 	/* D. Check state exit conditions. State can be terminated
 	 *    when high_seq is ACKed. */
 	if (icsk->icsk_ca_state == TCP_CA_Open) {
 		//根据条件判断是否输出警告信息		
 		WARN_ON(tp->retrans_out != 0);
-		//消除上一次的重传信息
+		//消除上一次的重传时间戳
 		tp->retrans_stamp = 0;
 	} else if (!before(tp->snd_una, tp->high_seq)) {
-		/*	进入的条件是tp->snd_una>=tp->high_seq,即
+		/*	进入的条件是tp->snd_una>tp->high_seq,即
 			拥塞时，记录的SND.NXT被确认了。拥塞情况已经好转很多了。
 			此时如果拥塞状态不处于OPen状态，可根据当前的状态结束回
 			到Open状态。
@@ -472,13 +447,16 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 				/* CWR is to be held something *above* high_seq
 				 * is ACKed for CWR bit to reach receiver. */
 				if (tp->snd_una != tp->high_seq) {
-					//窗口减小					
+					//结束窗口减小					
 					tcp_end_cwnd_reduction(sk);
-					//回到OPen状态??? CA 是什么意思。			
+					//回到OPen状态		
 					tcp_set_ca_state(sk, TCP_CA_Open);
 				}
 				break;
+\end{minted}
 
+	关于tcp\_end\_cwnd\_reduction的更多内容，请参见\ref{CongestionControlWindow:tcp_end_cwnd_reduction}.
+\begin{minted}[linenos]{C}
 			case TCP_CA_Recovery:
 				//判断对方是否提供了SACK服务，提供，返回0,否则返回1
 				if (tcp_is_reno(tp))
@@ -494,6 +472,12 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 				break;
 			}
 	}
+\end{minted}
+
+	关于tcp\_try\_undo\_recovery的更多内容，请参见\ref{CongestionControlWindowUndo:tcp_try_undo_recovery}	;
+	关于tcp\_end\_cwnd\_reduction的更多内容，请参见\ref{CongestionControlWindow:tcp_end_cwnd_reduction}.
+	
+\begin{minted}[linenos]{C}
 
 	/* Use RACK (Restransmit Ack????)to detect loss 
 		有时间好好分析。	
@@ -571,6 +555,3 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 }
 
 \end{minted}
-	
-	
-

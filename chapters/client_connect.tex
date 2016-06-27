@@ -823,7 +823,13 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 				    &sack_state);
 	/*得到确认的包的数量*/
 	acked -= tp->packets_out;
-	/*判断ack是否是可疑的*/
+	/*
+		tcp_ack_is_dubious用于判断ACK是不是可疑的
+			1.ACK是不是重复的
+			2.是不是带有SACK选项并且有ECE	
+			3.是不是Open态
+		只要有一项为真就会返回1.
+	*/
 	if (tcp_ack_is_dubious(sk, flag)) {
 		is_dupack = !(flag & (FLAG_SND_UNA_ADVANCED | FLAG_NOT_DUP));
 		tcp_fastretrans_alert(sk, acked, prior_unsacked,
@@ -832,7 +838,7 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 \end{minted}
 
 	关于tcp\_ack\_is\_dubious的更多的内容，请参见\ref{ACKCheck:tcp_ack_is_dubious}.
-
+	关于tcp\_fastretrans\_alert的更多内容，请参见\ref{CongestionDeal:tcp_fastretrans_alert}.
 \begin{minted}[linenos]{C}
 	if (tp->tlp_high_seq)
 		tcp_process_tlp_ack(sk, ack, flag);
