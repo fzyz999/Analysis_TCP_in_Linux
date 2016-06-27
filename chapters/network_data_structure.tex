@@ -11,13 +11,13 @@
 /*
 Location:
 
-	include/net/sock.h
+    include/net/sock.h
 
 Description:
 
-	minimal network layer representation of sockets
-	This is the minimal network layer representation of sockets, the header
-	for struct sock and struct inet_timewait_sock.
+    minimal network layer representation of sockets
+    This is the minimal network layer representation of sockets, the header
+    for struct sock and struct inet_timewait_sock.
 Member:
 
  *  @skc_daddr: Foreign IPv4 addr
@@ -133,14 +133,14 @@ struct sock_common {
 /*
 Location:
 
-	include/net/sock.h
+    include/net/sock.h
 
 Description:
 
-	sock结构是比较通用的网络层描述块，构成传输控制块的基础，与具体的协议族无关。
-	它描述了各协议族的公共信息，因此不能直接作为传输层控制块来使用。不同协议族的
-	传输层在使用该结构的时候都会对其进行拓展，来适合各自的传输特性。例如，inet_sock
-	结构由sock结构及其它特性组成，构成了IPV4协议族传输控制块的基础。
+    sock结构是比较通用的网络层描述块，构成传输控制块的基础，与具体的协议族无关。
+    它描述了各协议族的公共信息，因此不能直接作为传输层控制块来使用。不同协议族的
+    传输层在使用该结构的时候都会对其进行拓展，来适合各自的传输特性。例如，inet_sock
+    结构由sock结构及其它特性组成，构成了IPV4协议族传输控制块的基础。
 
 Member:
   * struct sock - network layer representation of sockets
@@ -363,12 +363,12 @@ struct sock {
 /* 
 Location:
 
-	/include/net/request_sock.h
+    /include/net/request_sock.h
 
 Description:
-	
-	struct request_sock - mini sock to represent a connection request
-	该结构用于表示一个简单的TCP连接请求。
+    
+    struct request_sock - mini sock to represent a connection request
+    该结构用于表示一个简单的TCP连接请求。
 */
 struct request_sock {
     struct sock_common      __req_common;
@@ -681,14 +681,14 @@ Description:
 */
 struct ip_options {
     __be32      faddr;
-	/*下一跳*/
+    /*下一跳*/
     __be32      nexthop;
-	/*标识IP首部中选项所占的字节数*/
+    /*标识IP首部中选项所占的字节数*/
     unsigned char   optlen;
-	/*
-		记录宽松路由或严格路由选项在IP首部中的偏移量，
-		即选项的第一个字节的地址减去IP首部的第一个字节的地址
-	*/
+    /*
+        记录宽松路由或严格路由选项在IP首部中的偏移量，
+        即选项的第一个字节的地址减去IP首部的第一个字节的地址
+    */
     unsigned char   srr;
     unsigned char   rr;
     unsigned char   ts;
@@ -1150,7 +1150,8 @@ struct flowi {
 %----------------------------------------------------------------------------------------
     \section{TCP层相关数据结构}
         \subsection{tcphdr}
-            该数据结构位于/include/uapi/linux/tcp.h中。
+            该数据结构位于/include/uapi/linux/tcp.h中。这一结构正是TCP首部在网络中
+的样貌。
 \begin{minted}[linenos]{C}
     struct tcphdr {
         __be16  source;
@@ -1271,9 +1272,9 @@ struct tcp_sock {
 /*
  *  Header prediction flags
  *  0x5?10 << 16 + snd_wnd in net byte order
-	首部预测标识。
+    首部预测标识。
 */
-    __be32  pred_flags;	
+    __be32  pred_flags; 
 
 /*
  *  RFC793 variables by their proper names. This means you can
@@ -1285,10 +1286,11 @@ struct tcp_sock {
                  * were acked.
                  */
     u32 segs_in;    /* RFC4898 tcpEStatsPerfSegsIn
-                 	* total number of segments in.
-                 	*/
+                    * total number of segments in.
+                    */
     u32 rcv_nxt;    /* 下一个待接收的字节号     */
     u32 copied_seq; /* Head of yet unread data      
+<<<<<<< HEAD
 						尚未读取数据的头部					
 					*/
     u32 rcv_wup;    /* rcv_nxt on last window update sent   
@@ -1296,6 +1298,11 @@ struct tcp_sock {
 						也就是上一个窗口更新之后，将要发送的第一个字节的
 						序列号。
 					*/
+=======
+                        尚未读取数据的头部                  
+                    */
+    u32 rcv_wup;    /* rcv_nxt on last window update sent   */
+>>>>>>> cd93ac539a89d70ff012a439e70acc9709fec00f
     u32 snd_nxt;    /* 下一个待发送的序列        */
     u32 segs_out;   /* RFC4898 tcpEStatsPerfSegsOut
                  * The total number of segments sent.
@@ -1465,9 +1472,9 @@ struct tcp_sock {
                     */
 
     u32 retrans_stamp;  /* Timestamp of the last retransmit,
-                 		* also used in SYN-SENT to remember stamp of
-                 		* the first SYN. 
-						*/
+                        * also used in SYN-SENT to remember stamp of
+                        * the first SYN. 
+                        */
     u32 undo_marker;    /* snd_una upon a new recovery episode. 
                             在使用F-RTO算法进行发送超时处理，或进入Recovery进行重传，
                             或进入Loss开始慢启动时，记录当时SND.UNA,标记重传起始点。
@@ -1481,7 +1488,7 @@ struct tcp_sock {
                         */
     u32 total_retrans;  /* Total retransmits for entire connection */
 
-    u32 urg_seq;    	/* Seq of received urgent pointer */
+    u32 urg_seq;        /* Seq of received urgent pointer */
     unsigned int        keepalive_time;   /* time before keep alive takes place */
     unsigned int        keepalive_intvl;  /* time interval between keep alive probes */
 
@@ -1518,13 +1525,38 @@ struct tcp_sock {
     struct tcp_md5sig_info  __rcu *md5sig_info;
 #endif
 
-/* TCP fastopen related information */
+    /* 与TCP Fast Open相关的信息 */
     struct tcp_fastopen_request *fastopen_req;
     /* fastopen_rsk points to request_sock that resulted in this big
      * socket. Used to retransmit SYNACKs etc.
      */
     struct request_sock *fastopen_rsk;
     u32 *saved_syn;
+};
+\end{minted}
+\subsection{\mintinline{c}{tcp_fastopen_cookie}}
+这里，len和val分别对应于\ref{subsubsec:fast-open-option}中描述的选项格式中的
+len和cookie。如果len为0，则代表需要请求一个Cookie。
+\begin{minted}[linenos]{c}
+/* Location: include/linux/tcp.h
+ *
+ * TCP Fast Open Cookie as stored in memory 
+ */
+struct tcp_fastopen_cookie {
+        s8      len;
+        u8      val[TCP_FASTOPEN_COOKIE_MAX];
+        bool    exp;    /* In RFC6994 experimental option format */
+};
+\end{minted}
+\subsection{\mintinline{c}{tcp_fastopen_request}}
+该结构体用于记录在fast open过程中发送数据的请求。
+\begin{minted}[linenos]{c}
+struct tcp_fastopen_request {
+        /* Fast Open cookie. */
+        struct tcp_fastopen_cookie      cookie;
+        struct msghdr                   *data;  /* 在fast open状态下想发送的数据 */
+        size_t                          size;
+        int                             copied; /* queued in tcp_connect() */
 };
 \end{minted}
         \subsection{\mintinline{C}{tcp_request_sock}}
@@ -1545,25 +1577,25 @@ struct tcp_request_sock {
 };
 \end{minted}
         \subsection{\mintinline{C}{tcp_skb_cb}}
-			\label{sec:tcp_skb_cb}
+            \label{sec:tcp_skb_cb}
 
-			在\ref{sec:sk_buff}中，我们分析过\mintinline{c}{cb}。该结构是TCP层在SKB区的
-			私有信息控制块。对这个私有信息控制块的赋值一般在本层接收到段或发送段之前进行。
-			在这一节中，我们将看到TCP层具体是如何使用这个控制缓冲区(Control Buffer)的。
+            在\ref{sec:sk_buff}中，我们分析过\mintinline{c}{cb}。该结构是TCP层在SKB区的
+            私有信息控制块。对这个私有信息控制块的赋值一般在本层接收到段或发送段之前进行。
+            在这一节中，我们将看到TCP层具体是如何使用这个控制缓冲区(Control Buffer)的。
 
             \subsubsection{TCP\_SKB\_CB}
-				\label{subsec:tcp_skb_cb}
+                \label{subsec:tcp_skb_cb}
 
-			在TCP层，用该宏访问给定的\mintinline{c}{sk_buff}的控制缓冲区的变量。在后续的章节中，
-			可以在很多函数中看到它的身影。该宏的定义如下：
+            在TCP层，用该宏访问给定的\mintinline{c}{sk_buff}的控制缓冲区的变量。在后续的章节中，
+            可以在很多函数中看到它的身影。该宏的定义如下：
 
 \begin{minted}[linenos]{c}
 #define TCP_SKB_CB(__skb)       ((struct tcp_skb_cb *)&((__skb)->cb[0]))
 \end{minted}
 
-			可以看到，该宏实际上是将\mintinline{c}{cb}的指针强制转型成\mintinline{c}{tcp_skb_cb}
-			结构体的指针。也就是说，TCP对于控制缓冲区的使用，可以从\mintinline{c}{tcp_skb_cb}
-			的定义分析出来。
+            可以看到，该宏实际上是将\mintinline{c}{cb}的指针强制转型成\mintinline{c}{tcp_skb_cb}
+            结构体的指针。也就是说，TCP对于控制缓冲区的使用，可以从\mintinline{c}{tcp_skb_cb}
+            的定义分析出来。
 
 \subsubsection{tcp\_skb\_cb结构体}
 \label{subsec:tcp_skb_sb_structure}
@@ -1615,4 +1647,24 @@ struct tcp_skb_cb {
 };
 \end{minted}
 
+\subsubsection{\mintinline{c}{tcp_out_options}}
+\mintinline{c}{tcp_out_options}用于存放发送TCP包时，TCP包所含的选项。
+\begin{minted}[linenos]{c}
+/* Location: net/ipv4/tcp_output.c */
+#define OPTION_SACK_ADVERTISE   (1 << 0)
+#define OPTION_TS               (1 << 1)
+#define OPTION_MD5              (1 << 2)
+#define OPTION_WSCALE           (1 << 3)
+#define OPTION_FAST_OPEN_COOKIE (1 << 8)
 
+struct tcp_out_options {
+        u16 options;            /* OPTION_*的位域 */
+        u16 mss;                /* 如果为0，则表示关闭该选项 */
+        u8 ws;                  /* 窗口放大， 0表示关闭该选项 */
+        u8 num_sack_blocks;     /* number of SACK blocks to include */
+        u8 hash_size;           /* bytes in hash_location */
+        __u8 *hash_location;    /* temporary pointer, overloaded */
+        __u32 tsval, tsecr;     /* need to include OPTION_TS */
+        struct tcp_fastopen_cookie *fastopen_cookie;    /* Fast open cookie */
+};
+\end{minted}
