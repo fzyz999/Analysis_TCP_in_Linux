@@ -46,7 +46,7 @@ void tcp_shutdown(struct sock *sk, int how)
 \section{主动关闭}
 \label{Actively Close}
 
-	\subsection{第一次握手——发送FIN}
+	\subsection{第一次握手:发送FIN}
 		\subsubsection{基本调用关系}
 		
 		\subsubsection{\mintinline{C}{tcp_close}}
@@ -390,14 +390,15 @@ coalesce:
 	在函数的最后，将所有的剩余数据一口气发出去，完成发送FIN包的过程。
 	至此，主动关闭过程的第一次握手完成。
 
-	\subsection{第二次握手——接收ACK}
+	\subsection{第二次握手:接收ACK}
 		在发出FIN后，接收端会回复ACK确认收到了请求。从这里开始有两种情况，一种是教科书式
 		的四次握手的情况，另一种是双方同时发出FIN的情况，这里我们考虑前一种情况。
 		后者会在\ref{subsec:fin_at_same_time}中描述。
 		
 		我们知道内核中接收数据都是从tcp\_v4\_do\_rcv函数开始，简单分析就知道会继续调用
 		tcp\_rcv\_state\_process函数，我们就直接从这里开始了。
-
+		\subsubsection{\mintinline{C}{tcp_rcv_state_process}}
+			\label{ClientReceiveACK:tcp_rcv_state_process}
 \begin{minted}[linenos]{c}
 int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 {
@@ -434,7 +435,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 	if (!tcp_validate_incoming(sk, skb, th, 0))
 		return 0;
 
-	/* step 5: check the ACK field */
+	/* step 5: check the ACK field ，判断是否可以接收*/
 	acceptable = tcp_ack(sk, skb, FLAG_SLOWPATH |
 				      FLAG_UPDATE_TS_RECENT) > 0;
 	switch (sk->sk_state) {
@@ -461,6 +462,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		                reqsk_fastopen_remove(sk, req, false);
 		                tcp_rearm_rto(sk);
 		        }
+				/*未确认的序列号是不是等于发送队列队尾序列号??*/
 		        if (tp->snd_una != tp->write_seq)
 		                break;
 
@@ -468,7 +470,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		        tcp_set_state(sk, TCP_FIN_WAIT2);
 		        sk->sk_shutdown |= SEND_SHUTDOWN;
 
-		        /* 确认路由缓存有效 */
+		        /* 如果路由缓存非空，确认路由缓存有效 */
 		        dst = __sk_dst_get(sk);
 		        if (dst)
 		                dst_confirm(dst);
@@ -480,7 +482,8 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		                break;
 		        }
 
-		        /* 如果所有发送的字节都被确认了，那么进入关闭状态。 */
+		        /* 如果linger2小于0,则说明无需在FIN_WAIT2状态等待，
+					直接关闭传输控制块。 */
 		        if (tp->linger2 < 0 ||
 		            (TCP_SKB_CB(skb)->end_seq != TCP_SKB_CB(skb)->seq &&
 		             after(TCP_SKB_CB(skb)->end_seq - th->fin, tp->rcv_nxt))) {
@@ -489,10 +492,11 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		                return 1;
 		        }
 \end{minted}
-转换到\mintinline{c}{TCP_FIN_WAIT2}以后，计算接受fin包的超时时间。
-如果还能留出TIMEWAIT阶段的时间（TIMEWAIT阶段有最长时间限制），那么在此之前，
-就激活保活计时器保持连接。如果时间已经不足了，就主动调用\mintinline{c}{tcp_time_wait}
-进入TIMEWAIT状态。
+
+	转换到\mintinline{c}{TCP_FIN_WAIT2}以后，计算接受fin包的超时时间。
+	如果还能留出TIMEWAIT阶段的时间（TIMEWAIT阶段有最长时间限制），那么在此之前，
+	就激活保活计时器保持连接。如果时间已经不足了，就主动调用\mintinline{c}{tcp_time_wait}
+	进入TIMEWAIT状态。
 \begin{minted}[linenos]{c}
                 tmo = tcp_fin_time(sk);
                 if (tmo > TCP_TIMEWAIT_LEN) {
@@ -522,27 +526,34 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
         switch (sk->sk_state) {
           /* 其他状态处理代码，略去 */
 
-        case TCP_FIN_WAIT1:
-        case TCP_FIN_WAIT2:
-                /* RFC 793 says to queue data in these states,
-                 * RFC 1122 says we MUST send a reset.
-                 * BSD 4.4 also does reset.
-                 */
-                if (sk->sk_shutdown & RCV_SHUTDOWN) {
-                        if (TCP_SKB_CB(skb)->end_seq != TCP_SKB_CB(skb)->seq &&
-                            after(TCP_SKB_CB(skb)->end_seq - th->fin, tp->rcv_nxt)) {
-                                NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_TCPABORTONDATA);
-                                /* 如果接收端已经关闭了，那么发送RESET。 */
-                                tcp_reset(sk);
-                                return 1;
-                        }
-                }
-                /* Fall through */
+		    case TCP_FIN_WAIT1:
+		    case TCP_FIN_WAIT2:
+		            /* RFC 793 says to queue data in these states,
+		             * RFC 1122 says we MUST send a reset.
+		             * BSD 4.4 also does reset.
+		             */
+					/*
+						如果接收方向已经关闭，而又收到新的数据，则需要给对方发送
+						RST段，告诉对方已经把数据丢弃。
+					*/
+		            if (sk->sk_shutdown & RCV_SHUTDOWN) {
+		                    if (TCP_SKB_CB(skb)->end_seq != TCP_SKB_CB(skb)->seq &&
+		                        after(TCP_SKB_CB(skb)->end_seq - th->fin, tp->rcv_nxt)) {
+		                            NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_TCPABORTONDATA);
+		                            /* 如果接收端已经关闭了，那么发送RESET。 */
+		                            tcp_reset(sk);
+		                            return 1;
+		                    }
+		            }
+		            /* Fall through */
 
-           /* 其他状态处理代码，略去 */
+		       /* 其他状态处理代码，略去 */
         }
 
-        /* tcp_data could move socket to TIME-WAIT */
+        /* tcp_data could move socket to TIME-WAIT 
+			如果TCP的状态不处于CLOSE状态，则发送队列中的段，
+			同时调度ACK，确定是立即发送，还是延时发送。
+		*/
         if (sk->sk_state != TCP_CLOSE) {
                 tcp_data_snd_check(sk);
                 tcp_ack_snd_check(sk);
@@ -555,28 +566,50 @@ discard:
         return 0;
 }
 \end{minted}
-执行完该段代码后，则进入了\mintinline{text}{FIN_WAIT2}状态。
+	执行完该段代码后，则进入了\mintinline{text}{FIN_WAIT2}状态。
 
-由于进入到\mintinline{text}{FIN_WAIT2}状态后，不会再处理TCP段的数据。
-因此，出于资源和方面的考虑，采用了一个较小的结构体\mintinline{c}{tcp_timewait_sock}来
-取代正常的TCP传输控制块。\mintinline{text}{TIME_WAIT}也是可作同样处理。
-该替换过程通过函数\mintinline{c}{tcp_time_wait}完成。
+	由于进入到\mintinline{text}{FIN_WAIT2}状态后，不会再处理TCP段的数据。
+	因此，出于资源和方面的考虑，Linux内核采用了一个较小的结构体\mintinline{c}{tcp_timewait_sock}来
+	取代正常的TCP传输控制块。\mintinline{text}{TIME_WAIT}也是可作同样处理。
+	该替换过程通过函数\mintinline{c}{tcp_time_wait}完成。
+
+		\subsubsection{\mintinline{C}{tcp_time_wait}}
 \begin{minted}[linenos]{c}
+/*
+Location:
+
+	net/ipv4/tcp_minicock.c
+
+Function:
+
+	Move a socket to time-wait or dead fin-wait-2 state.
+
+Parameter:
+
+	sk: sock
+	state:状态
+	timeo:超时时间
+	
+*/
 void tcp_time_wait(struct sock *sk, int state, int timeo)
 {
         const struct inet_connection_sock *icsk = inet_csk(sk);
         const struct tcp_sock *tp = tcp_sk(sk);
         struct inet_timewait_sock *tw;
         bool recycle_ok = false;
-
+		/*	
+			如果启用tw_recycle，且ts_recent_stamp有效，则记录相关时间戳
+			信息到对端信息管理块中。
+		*/
         if (tcp_death_row.sysctl_tw_recycle && tp->rx_opt.ts_recent_stamp)
                 recycle_ok = tcp_remember_stamp(sk);
 
         /* 分配空间 */
         tw = inet_twsk_alloc(sk, &tcp_death_row, state);
-
+		/*分配成功*/
         if (tw) {
                 struct tcp_timewait_sock *tcptw = tcp_twsk((struct sock *)tw);
+				/*计算重传超时时间*/
                 const int rto = (icsk->icsk_rto << 2) - (icsk->icsk_rto >> 1);
                 struct inet_sock *inet = inet_sk(sk);
 
@@ -596,7 +629,11 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
                 /* Get the TIME_WAIT timeout firing. */
                 if (timeo < rto)
                         timeo = rto;
-
+				/*
+					如果成功将相关时间戳信息添加到对端信息管理块中，
+					则TIME_WAIT的超时时间设置为3.5倍的往返时间。
+					否则，设置为60s。
+				*/
                 if (recycle_ok) {
                         tw->tw_timeout = rto;
                 } else {
@@ -621,13 +658,59 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
 }
 \end{minted}
 
-\subsection{第三次握手——接受FIN}
-\label{subsec:third_recv_fin}
-此时，由于已经使用了timewait控制块取代了TCP控制块。因此，对应的处理代码不再位于
-\mintinline{c}{tcp_rcv_state_process}中，而是换到了
-\mintinline{c}{tcp_timewait_state_process}函数中。该函数的代码如下，可以看到
-参数中已经变成了\mintinline{c}{inet_timewait_sock}。
+	\subsection{第三次握手:接受FIN}
+		\label{subsec:third_recv_fin}
+			此时，由于已经使用了timewait控制块取代了TCP控制块。因此，对应的处理代码不再位于
+			\mintinline{c}{tcp_rcv_state_process}中，而是换到了
+			\mintinline{c}{tcp_timewait_state_process}函数中。
+		\subsubsection{\mintinline{c}{tcp_timewait_state_process}}
+			\label{ClientReceiveFIN:tcp_timewait_state_process}
+			该函数的代码如下，可以看到
+			参数中已经变成了\mintinline{c}{inet_timewait_sock}。
+
 \begin{minted}[linenos]{c}
+/*
+Location
+
+	net/ipv4/tcp_minisock.h
+
+Description
+
+ * * Main purpose of TIME-WAIT state is to close connection gracefully,
+ *   when one of ends sits in LAST-ACK or CLOSING retransmitting FIN
+ *   (and, probably, tail of data) and one or more our ACKs are lost.
+ * * What is TIME-WAIT timeout? It is associated with maximal packet
+ *   lifetime in the internet, which results in wrong conclusion, that
+ *   it is set to catch "old duplicate segments" wandering out of their path.
+ *   It is not quite correct. This timeout is calculated so that it exceeds
+ *   maximal retransmission timeout enough to allow to lose one (or more)
+ *   segments sent by peer and our ACKs. This time may be calculated from RTO.
+ * * When TIME-WAIT socket receives RST, it means that another end
+ *   finally closed and we are allowed to kill TIME-WAIT too.
+ * * Second purpose of TIME-WAIT is catching old duplicate segments.
+ *   Well, certainly it is pure paranoia, but if we load TIME-WAIT
+ *   with this semantics, we MUST NOT kill TIME-WAIT state with RSTs.
+ * * If we invented some more clever way to catch duplicates
+ *   (f.e. based on PAWS), we could truncate TIME-WAIT to several RTOs.
+ *
+ * The algorithm below is based on FORMAL INTERPRETATION of RFCs.
+ * When you compare it to RFCs, please, read section SEGMENT ARRIVES
+ * from the very beginning.
+ *
+ * NOTE. With recycling (and later with fin-wait-2) TW bucket
+ * is _not_ stateless. It means, that strictly speaking we must
+ * spinlock it. I do not want! Well, probability of misbehaviour
+ * is ridiculously low and, seems, we could use some mb() tricks
+ * to avoid misread sequence numbers, states etc.  --ANK
+ *
+ * We don't need to initialize tmp_out.sack_ok as we don't use the results
+
+Parameter
+
+	tw:接收处理段的timewait控制块。
+	skb:FIN_WAIT2和TIME_WAIT状态下接收到的段
+	th:TCP的首部
+*/
 enum tcp_tw_status
 tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
                            const struct tcphdr *th)
@@ -635,7 +718,7 @@ tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
         struct tcp_options_received tmp_opt;
         struct tcp_timewait_sock *tcptw = tcp_twsk((struct sock *)tw);
         bool paws_reject = false;
-
+		/*首先标记没有看到时间戳*/
         tmp_opt.saw_tstamp = 0;
         if (th->doff > (sizeof(*th) >> 2) && tcptw->tw_ts_recent_stamp) {
                 tcp_parse_options(skb, &tmp_opt, 0, NULL);
@@ -648,13 +731,15 @@ tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
                 }
         }
 \end{minted}
-检测收到的包是否含有时间戳选项，如果有，则进行PAWS相关的检测。之后，开始进行
-\mintinline{text}{TCP_FIN_WAIT2}相关的处理。
+	检测收到的包是否含有时间戳选项，如果有，则进行PAWS相关的检测。之后，开始进行
+	\mintinline{text}{TCP_FIN_WAIT2}相关的处理。
+
+	关于tcp\_paws\_reject更多的内容，请参见\ref{TCPPAWS:tcp_paws_reject}.
 \begin{minted}[linenos]{c}
         if (tw->tw_substate == TCP_FIN_WAIT2) {
                 /* 重复tcp_rcv_state_process()所进行的所有检测 */
 
-                /* 序号不在窗口内，发送ACK */
+                /* 序号不在窗口内或序号无效，发送ACK */
                 if (paws_reject ||
                     !tcp_in_window(TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq,
                                    tcptw->tw_rcv_nxt,
@@ -666,11 +751,11 @@ tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
                 if (th->rst)
                         goto kill;
 
-                /* 如果收到SYN包，则销毁并发送RST */
+                /* 如果收到过期的SYN包，则销毁并发送RST */
                 if (th->syn && !before(TCP_SKB_CB(skb)->seq, tcptw->tw_rcv_nxt))
                         goto kill_with_rst;
 
-                /* 如果收到DACK，则释放该控制块 */
+                /* 如果收到DACK，则释放该控制块，返回TCP_TW_SUCCESS*/
                 if (!th->ack ||
                     !after(TCP_SKB_CB(skb)->end_seq, tcptw->tw_rcv_nxt) ||
                     TCP_SKB_CB(skb)->end_seq == TCP_SKB_CB(skb)->seq) {
@@ -682,7 +767,7 @@ tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
                 if (!th->fin ||
                     TCP_SKB_CB(skb)->end_seq != tcptw->tw_rcv_nxt + 1) {
                         /* 如果收到了新的数据或者序号有问题，
-                         * 则销毁控制块并发送RST。 
+                         * 则销毁控制块并返回TCP_TW_RST。 
                          */
 kill_with_rst:
                         inet_twsk_deschedule_put(tw);
@@ -713,10 +798,10 @@ kill_with_rst:
 }
 \end{minted}
 
-\subsection{第四次握手——发送ACK}
-在\mintinline{c}{tcp_v4_rcv}中，如果发现目前的连接处于\mintinline{text}{FIN_WAIT2}
-或\mintinline{text}{TIME_WAIT}状态，则调用\mintinline{c}{tcp_timewait_state_process}
-进行处理，根据其返回值，执行相关操作。
+	\subsection{第四次握手:发送ACK}
+		在\mintinline{c}{tcp_v4_rcv}中，如果发现目前的连接处于\mintinline{text}{FIN_WAIT2}
+		或\mintinline{text}{TIME_WAIT}状态，则调用\mintinline{c}{tcp_timewait_state_process}
+		进行处理，根据其返回值，执行相关操作。
 
 \begin{minted}[linenos]{c}
 switch (tcp_timewait_state_process(inet_twsk(sk), skb, th)) {
@@ -742,9 +827,9 @@ switch (tcp_timewait_state_process(inet_twsk(sk), skb, th)) {
         case TCP_TW_SUCCESS:;
 }
 \end{minted}
-根据上面的分析，在正常情况下，\mintinline{c}{tcp_timewait_state_process}会返回
-\mintinline{c}{TCP_TW_ACK}，因此，会调用\mintinline{c}{tcp_v4_timewait_ack}。
-该函数如下：
+		根据上面的分析，在正常情况下，\mintinline{c}{tcp_timewait_state_process}会返回
+		\mintinline{c}{TCP_TW_ACK}，因此，会调用\mintinline{c}{tcp_v4_timewait_ack}。
+		该函数如下：
 \begin{minted}[linenos]{c}
 static void tcp_v4_timewait_ack(struct sock *sk, struct sk_buff *skb)
 {
@@ -767,7 +852,7 @@ static void tcp_v4_timewait_ack(struct sock *sk, struct sk_buff *skb)
         inet_twsk_put(tw);
 }
 \end{minted}
-紧接着又将发送ACK包的任务交给\mintinline{c}{tcp_v4_send_ack}来执行。
+	紧接着又将发送ACK包的任务交给\mintinline{c}{tcp_v4_send_ack}来执行。
 \begin{minted}[linenos]{c}
 /* 下面的代码负责在SYN_RECV和TIME_WAIT状态下发送ACK包。
  *
@@ -837,12 +922,12 @@ static void tcp_v4_send_ack(struct net *net,
 \end{minted}
 至此，四次握手就完成了。
 
-\subsection{同时关闭}
-\label{subsec:fin_at_same_time}
-还有一种情况是双方同时发出了FIN报文，准备关闭连接。表现在TCP的状态图上，就是在
-发出FIN包以后又收到了FIN包，因此进入了CLOSING状态。该段代码在\ref{subsubsec:tcp_fin}
-中进行了解析。之后，CLOSING状态等待接受ACK，就会进入到下一个状态
-在\mintinline{c}{tcp_rcv_state_process}中，处理\mintinline{text}{TCP_CLOSING}的代码如下：
+	\subsection{同时关闭}
+		\label{subsec:fin_at_same_time}
+			还有一种情况是双方同时发出了FIN报文，准备关闭连接。表现在TCP的状态图上，就是在
+			发出FIN包以后又收到了FIN包，因此进入了CLOSING状态。该段代码在\ref{subsubsec:tcp_fin}
+			中进行了解析。之后，CLOSING状态等待接受ACK，就会进入到下一个状态
+			在\mintinline{c}{tcp_rcv_state_process}中，处理\mintinline{text}{TCP_CLOSING}的代码如下：
 \begin{minted}[linenos]{c}
         case TCP_CLOSING:
                 if (tp->snd_una == tp->write_seq) {
@@ -851,8 +936,8 @@ static void tcp_v4_send_ack(struct net *net,
                 }
                 break;
 \end{minted}
-如果收到的ACK没问题则转入\mintinline{text}{TIME_WAIT}状态，利用timewait
-控制块完成后续的工作。
+	如果收到的ACK没问题则转入\mintinline{text}{TIME_WAIT}状态，利用timewait
+	控制块完成后续的工作。
 \begin{minted}[linenos]{c}
 switch (sk->sk_state) {
         case TCP_CLOSE_WAIT:
@@ -883,11 +968,11 @@ switch (sk->sk_state) {
 \end{minted}
 如果段中的数据正常，且接口没有关闭，那么就收下数据。否则，就直接忽略掉数据段的数据。
 
-\subsection{TIME\_WAIT}
-\label{subsec:time_wait}
-该状态的处理也在\mintinline{c}{tcp_timewait_state_process}函数中。紧接在
-\ref{subsec:third_recv_fin}中处理\mintinline{text}{FIN_WAIT2}状态的代码之后。
-此时，说明当前的状态为\mintinline{text}{TIME_WAIT}。
+	\subsection{TIME\_WAIT}
+		\label{subsec:time_wait}
+			该状态的处理也在\mintinline{c}{tcp_timewait_state_process}函数中。紧接在
+			\ref{subsec:third_recv_fin}中处理\mintinline{text}{FIN_WAIT2}状态的代码之后。
+			此时，说明当前的状态为\mintinline{text}{TIME_WAIT}。
 \begin{minted}[linenos]{c}
         /*
          *      Now real TIME-WAIT state.
@@ -905,12 +990,14 @@ switch (sk->sk_state) {
          *      (2)  returns to TIME-WAIT state if the SYN turns out
          *      to be an old duplicate".
          */
-
+        /* 
+			序号没有回卷,且正是预期接收的段，段中没有负载
+			或段中存在RST标志。
+		*/
         if (!paws_reject &&
             (TCP_SKB_CB(skb)->seq == tcptw->tw_rcv_nxt &&
              (TCP_SKB_CB(skb)->seq == TCP_SKB_CB(skb)->end_seq || th->rst))) {
-                /* 序号没有回卷，仍在窗口中。 */
-
+				/*如果存在RST*/
                 if (th->rst) {
                         /* This is TIME_WAIT assassination, in two flavors.
                          * Oh well... nobody has a sufficient solution to this
@@ -959,12 +1046,14 @@ kill:
            we must return socket to time-wait state. It is not good,
            but not fatal yet.
          */
-
+		/*
+			接收到SYN段，并且没有RST和ACK标志，并且没有拒绝检测，并且序号有效。
+		*/
         if (th->syn && !th->rst && !th->ack && !paws_reject &&
             (after(TCP_SKB_CB(skb)->seq, tcptw->tw_rcv_nxt) ||
              (tmp_opt.saw_tstamp &&
               (s32)(tcptw->tw_ts_recent - tmp_opt.rcv_tsval) < 0))) {
-                /* 如果可以接受该SYN请求，那么重新计算isn号，并发出syn。 */
+                /* 如果可以接受该SYN请求，那么重新计算isn号，并返回TCP_TW_SYN。 */
                 u32 isn = tcptw->tw_snd_nxt + 65535 + 2;
                 if (isn == 0)
                         isn++;
