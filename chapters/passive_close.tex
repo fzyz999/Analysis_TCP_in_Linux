@@ -4,18 +4,18 @@
     \subsection{基本流程}
         在正常的被动关闭开始时，TCP控制块目前处于ESTABLISHED状态，此时接收到的TCP段都由\mintinline{C}{tcp_rcv_established}函数来处理，因此FIN段必定要做首部预测，当然预测一定不会通过，所以FIN段是走\textbf{慢速路径}处理的。
 
-        在慢速路径中，首先，首先进行TCP选项的处理(假设存在)，然后根据段的序号检测该FIN段是不是期望接收的段。如果是，则调用\mintinline{C}{tcp_fin}函数进行处理。如果不是，则说明在TCP段传输过程中出现了失序，因此将该FIN段缓存到乱序队列中，等待它之前的所有TCP段都到其后才能作处理。
+        在慢速路径中，首先进行TCP选项的处理(假设存在)，然后根据段的序号检测该FIN段是不是期望接收的段。如果是，则调用\mintinline{C}{tcp_fin}函数进行处理。如果不是，则说明在TCP段传输过程中出现了失序，因此将该FIN段缓存到乱序队列中，等待它之前的所有TCP段都到,才能做处理。
 
-    \subsection{\mintinline{C}{第一次握手：接收FIN}}
+    \subsection{第一次握手:接收FIN}
 
-        在这个过程中，服务器段主要接收到了客户端的FIN段，并且跳转到了\mintinline{C}{CLOSE_WAIT}状态。
+        在这个过程中，服务器端主要接收到了客户端的FIN段，并且跳转到了\mintinline{C}{CLOSE_WAIT}状态。
         \subsubsection{函数调用关系}
         
 
         \subsubsection{\mintinline{C}{tcp_fin}}
-        \label{subsubsec:tcp_fin}
+        	\label{subsubsec:tcp_fin}
 
-            此时，首先调用的传输层的函数为\mintinline{C}{tcp_rcv_established},然后走慢速路径由\mintinline{C}{tcp_data_queue}函数处理。在处理的过程中，如果FIN段时预期接收的段，则调用\mintinline{C}{tcp_fin}函数处理，否则，将该段暂存到乱序队列中，等待它之前的TCP段到齐之后再做处理，这里我们不说函数\mintinline{C}{tcp_rcv_established}与\mintinline{C}{tcp_data_queue}了，这些主要是在数据传送阶段介绍的函数。我们直接介绍\mintinline{C}{tcp_fin}函数。
+            此时，首先调用的传输层的函数为\mintinline{C}{tcp_rcv_established},然后走慢速路径由\mintinline{C}{tcp_data_queue}函数处理。在处理的过程中，如果FIN段是预期接收的段，则调用\mintinline{C}{tcp_fin}函数处理，否则，将该段暂存到乱序队列中，等待它之前的TCP段到齐之后再做处理，这里我们不说函数\mintinline{C}{tcp_rcv_established}与\mintinline{C}{tcp_data_queue}了，这些主要是在数据传送阶段介绍的函数。我们直接介绍\mintinline{C}{tcp_fin}函数。
 
 \begin{minted}[linenos]{C}
 /*
@@ -54,7 +54,7 @@ static void tcp_fin(struct sock *sk)
 
             首先，接收到FIN段后需要调度、发送ACK。
 
-            其次，设置了传输控制块的套接口状态为\mintinline{C}{RCV_SHUTDOWN}，表示服务器端不允许在接收数据。
+            其次，设置了传输控制块的套接口状态为\mintinline{C}{RCV_SHUTDOWN}，表示服务器端不允许再接收数据。
     
             最后，设置传输控制块的\mintinline{C}{SOCK_DONE}标志，表示TCP会话结束。
 
@@ -66,7 +66,7 @@ static void tcp_fin(struct sock *sk)
         case TCP_ESTABLISHED:
             /* Move to CLOSE_WAIT */
             tcp_set_state(sk, TCP_CLOSE_WAIT);
-            inet_csk(sk)->icsk_ack.pingpong = 1;            //what does it means pingpong?  to do.
+            inet_csk(sk)->icsk_ack.pingpong = 1;      //what does it means pingpong?  to do.
             break;
 \end{minted}
 
@@ -145,3 +145,26 @@ static void tcp_fin(struct sock *sk)
             清空接到的乱序队列上的段，再清除有关SACK的信息和标志，最后释放已接收队列中的段。
 
             如果此时套接口未处于DEAD状态，则唤醒等待该套接口的进程。如果在发送接收方向上都进行了关闭，或者此时传输控制块处于CLOSE状态，则唤醒异步等待该套接口的进程，通知它们该连接已经停止，否则通知它们连接可以进行写操作。
+    \subsection{第二次握手:发送FIN的ACK}
+		这个是在哪里执行呢？？ remain to do。
+
+    \subsection{第三次握手:发送FIN}
+		这里与主动关闭的第一次握手类似，就不再讲解了。
+    \subsection{第四次握手:接收FIN的ACK}
+
+		我们知道内核中接收数据都是从tcp\_v4\_do\_rcv函数开始，简单分析就知道会继续调用
+		tcp\_rcv\_state\_process函数，然后会根据相应的状态到这里。
+\begin{minted}[linenos]{C}
+	case TCP_LAST_ACK:
+		/*未确认等于下一个要发送，更新metrics，*/
+		if (tp->snd_una == tp->write_seq) {
+			tcp_update_metrics(sk);
+			/*置状态为CLOSE*/
+			tcp_done(sk);
+			goto discard;
+		}
+		break;
+	}
+\end{minted}
+
+

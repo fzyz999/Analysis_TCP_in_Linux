@@ -46,7 +46,7 @@ void tcp_shutdown(struct sock *sk, int how)
 \section{主动关闭}
 \label{Actively Close}
 
-	\subsection{第一次握手——发送FIN}
+	\subsection{第一次握手:发送FIN}
 		\subsubsection{基本调用关系}
 		
 		\subsubsection{\mintinline{C}{tcp_close}}
@@ -390,7 +390,7 @@ coalesce:
 	在函数的最后，将所有的剩余数据一口气发出去，完成发送FIN包的过程。
 	至此，主动关闭过程的第一次握手完成。
 
-	\subsection{第二次握手——接收ACK}
+	\subsection{第二次握手:接收ACK}
 		在发出FIN后，接收端会回复ACK确认收到了请求。从这里开始有两种情况，一种是教科书式
 		的四次握手的情况，另一种是双方同时发出FIN的情况，这里我们考虑前一种情况。
 		后者会在\ref{subsec:fin_at_same_time}中描述。
@@ -658,7 +658,7 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
 }
 \end{minted}
 
-	\subsection{第三次握手——接受FIN}
+	\subsection{第三次握手:接受FIN}
 		\label{subsec:third_recv_fin}
 			此时，由于已经使用了timewait控制块取代了TCP控制块。因此，对应的处理代码不再位于
 			\mintinline{c}{tcp_rcv_state_process}中，而是换到了
@@ -798,7 +798,7 @@ kill_with_rst:
 }
 \end{minted}
 
-	\subsection{第四次握手——发送ACK}
+	\subsection{第四次握手:发送ACK}
 		在\mintinline{c}{tcp_v4_rcv}中，如果发现目前的连接处于\mintinline{text}{FIN_WAIT2}
 		或\mintinline{text}{TIME_WAIT}状态，则调用\mintinline{c}{tcp_timewait_state_process}
 		进行处理，根据其返回值，执行相关操作。
@@ -922,12 +922,12 @@ static void tcp_v4_send_ack(struct net *net,
 \end{minted}
 至此，四次握手就完成了。
 
-\subsection{同时关闭}
-\label{subsec:fin_at_same_time}
-还有一种情况是双方同时发出了FIN报文，准备关闭连接。表现在TCP的状态图上，就是在
-发出FIN包以后又收到了FIN包，因此进入了CLOSING状态。该段代码在\ref{subsubsec:tcp_fin}
-中进行了解析。之后，CLOSING状态等待接受ACK，就会进入到下一个状态
-在\mintinline{c}{tcp_rcv_state_process}中，处理\mintinline{text}{TCP_CLOSING}的代码如下：
+	\subsection{同时关闭}
+		\label{subsec:fin_at_same_time}
+			还有一种情况是双方同时发出了FIN报文，准备关闭连接。表现在TCP的状态图上，就是在
+			发出FIN包以后又收到了FIN包，因此进入了CLOSING状态。该段代码在\ref{subsubsec:tcp_fin}
+			中进行了解析。之后，CLOSING状态等待接受ACK，就会进入到下一个状态
+			在\mintinline{c}{tcp_rcv_state_process}中，处理\mintinline{text}{TCP_CLOSING}的代码如下：
 \begin{minted}[linenos]{c}
         case TCP_CLOSING:
                 if (tp->snd_una == tp->write_seq) {
