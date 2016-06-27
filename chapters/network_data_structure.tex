@@ -1203,12 +1203,12 @@ struct tcp_options_received {
     u32 ts_recent;            /* Time stamp to echo next                     
                                 下一个待发送的TCP段中的时间戳回显值。当一个含有最后
                                 发送ACK中确认序号的段到达时，该段中的时间戳被保存在
-                                ts_recent中。而当下一个待发送的TCP段的时间戳值是由
+                                ts_recent中。而下一个待发送的TCP段的时间戳值是由
                                 SKB中TCP控制块的成员when填入的，when字段值是由协议
                                 栈取系统时间变量jiffies的低32位。
                               */
     u32 rcv_tsval;            /* Time stamp value                            
-                                保存最近一次接收到对段的TCP段的时间戳选项中的时间戳值。
+                                保存最近一次接收到对端的TCP段的时间戳选项中的时间戳值。
                               */
     u32 rcv_tsecr;            /* Time stamp echo reply                       
                                 保存最近一次接收到对端的TCP段的时间戳选项中的时间戳
@@ -1234,7 +1234,27 @@ struct tcp_options_received {
     u16 user_mss;             /* mss requested by user in ioctl              */
     u16 mss_clamp;            /* Maximal mss, negotiated at connection setup */
 };
-\end{minted}            
+\end{minted} 
+
+		\subsection{\mintinline{C}{tcp_sacktag_state}}
+\begin{minted}[linenos]{C}
+/*
+Location
+	
+	net/ipv4/tcp_input.c
+*/
+struct tcp_sacktag_state {
+	int	reord;
+	int	fack_count;
+	/* Timestamps for earliest and latest never-retransmitted segment
+	 * that was SACKed. RTO needs the earliest RTT to stay conservative,
+	 * but congestion control should still get an accurate delay signal.
+	 */
+	struct skb_mstamp first_sackt;
+	struct skb_mstamp last_sackt;
+	int	flag;
+};
+\end{minted}           
         \subsection{\mintinline{C}{tcp_sock}}
 
             该数据结构位于\mintinline{C}{/include/linux/tcp.h}中。
@@ -1271,7 +1291,11 @@ struct tcp_sock {
     u32 copied_seq; /* Head of yet unread data      
 						尚未读取数据的头部					
 					*/
-    u32 rcv_wup;    /* rcv_nxt on last window update sent   */
+    u32 rcv_wup;    /* rcv_nxt on last window update sent   
+						意思就是在上一个窗口更新的时候，所接收到的确认号
+						也就是上一个窗口更新之后，将要发送的第一个字节的
+						序列号。
+					*/
     u32 snd_nxt;    /* 下一个待发送的序列        */
     u32 segs_out;   /* RFC4898 tcpEStatsPerfSegsOut
                  * The total number of segments sent.
@@ -1400,7 +1424,7 @@ struct tcp_sock {
                         丢失的数据报
                     */
     u32 sacked_out; /* SACK'd packets           
-                        启用ACK时，通过SACK的TCP选项标识已接收到的段的数量。
+                        启用SACK时，通过SACK的TCP选项标识已接收到的段的数量。
                         不启用SACK时，标识接收到的重复确认的次数，该值在接收到确认新数据段时被清除。
                     */
     u32 fackets_out;    /* FACK'd packets           
