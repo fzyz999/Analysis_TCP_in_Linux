@@ -11,14 +11,24 @@
 \mintinline{c}{struct tcp_congestion_ops}结构体描述了一套拥塞控制算法所需要
 支持的操作。其原型如下：
 \begin{minted}[linenos]{c}
+/*
+Location
+
+	include/net/tcp.h
+*/
 struct tcp_congestion_ops {
+		/*链接注册到系统中不同的各种拥塞算法*/
         struct list_head        list;
         u32 key; /* 算法名称的哈希值 */
         u32 flags;
 
         /* 初始化私有数据 (可选) */
         void (*init)(struct sock *sk);
-        /* 释放私有数据  (可选) */
+        /* 释放私有数据  (可选) 
+			调用场合:
+				1.关闭套接口
+				2.传输控制块选择了另一种拥塞控制算法
+		*/
         void (*release)(struct sock *sk);
 
         /* 返回ssthresh (必须实现) */
@@ -33,7 +43,9 @@ struct tcp_congestion_ops {
         void (*in_ack_event)(struct sock *sk, u32 flags);
         /* 用于撤销“缩小拥塞窗口” (可选) */
         u32  (*undo_cwnd)(struct sock *sk);
-        /* 有段被确认时会调用此函数 (可选) */
+        /* 有段被确认时会调用此函数 (可选)
+			num_acked为此次ACK确认的段数
+		 */
         void (*pkts_acked)(struct sock *sk, u32 num_acked, s32 rtt_us);
         /* 为inet_diag准备的获取信息的接口 (可选) */
         size_t (*get_info)(struct sock *sk, u32 ext, int *attr,
@@ -45,25 +57,30 @@ struct tcp_congestion_ops {
 };
 \end{minted}
 
-\subsubsection{拥塞控制事件}
-为了将拥塞控制算法相关的部分抽取处理，Linux的开发者们采用了事件机制，即在发生和拥塞控制
-相关的事件后，调用拥塞控制算法中的事件处理函数，以通知拥塞控制模块，具体发生了什么。
-而作为实现拥塞控制算法的开发者，则无需关心事件是如何发生的，以及相关的实现，只要
-专注于事件所对应的需要执行的算法即可。
+		\subsubsection{拥塞控制事件}
+			为了将拥塞控制算法相关的部分抽取处理，Linux的开发者们采用了事件机制，即在发生和拥塞控制
+			相关的事件后，调用拥塞控制算法中的事件处理函数，以通知拥塞控制模块，具体发生了什么。
+			而作为实现拥塞控制算法的开发者，则无需关心事件是如何发生的，以及相关的实现，只要
+			专注于事件所对应的需要执行的算法即可。
 
-当发生相关事件是会调用\mintinline{c}{cwnd_event}函数。该函数会传入一个枚举值作为参数，
-代表具体发生的事件。该枚举值的定义如下：
+			当发生相关事件是会调用\mintinline{c}{cwnd_event}函数。该函数会传入一个枚举值作为参数，
+			代表具体发生的事件。该枚举值的定义如下：
 \begin{minted}[linenos]{c}
+/*
+Location
+
+	include/net/tcp.h
+*/
 enum tcp_ca_event {
-        /* 首次传输（无已发出但还未确认的包） */
+        /* 首次传输，且无已发出但还未确认的包 */
         CA_EVENT_TX_START,
         /* 拥塞窗口重启 */
         CA_EVENT_CWND_RESTART,  
         /* 拥塞恢复结束 */
         CA_EVENT_COMPLETE_CWR,
-        /* loss超时 */
+        /* 超时，进入loss状态 */
         CA_EVENT_LOSS,          
-        /* ECT 被设置了，但 CE 没有被置位 */
+        /* ECN 被设置了，但 CE 没有被置位 */
         CA_EVENT_ECN_NO_CE,     
         /* 收到了设置了 CE 位的IP报文 */
         CA_EVENT_ECN_IS_CE,     
@@ -84,8 +101,8 @@ enum tcp_ca_ack_event_flags {
 \end{minted}
 
 
-\subsubsection{\mintinline{c}{tcp_register_congestion_control()}}
-该函数用于注册一个新的拥塞控制算法。
+		\subsubsection{\mintinline{c}{tcp_register_congestion_control()}}
+			该函数用于注册一个新的拥塞控制算法。
 \begin{minted}[linenos]{c}
 int tcp_register_congestion_control(struct tcp_congestion_ops *ca)
 {
@@ -119,9 +136,9 @@ int tcp_register_congestion_control(struct tcp_congestion_ops *ca)
         return ret;
 }
 \end{minted}
-其中，\mintinline{c}{tcp_ca_find_key}函数通过哈希值来查找名称。jash是一种久经考验的
-性能极佳的哈希算法。据称，其计算速度和产生的分布都很漂亮。这里计算哈希值正是使用了这种
-哈希算法。早些版本的内核查找拥塞控制算法，是通过名字直接查找的。
+	其中，\mintinline{c}{tcp_ca_find_key}函数通过哈希值来查找名称。jash是一种久经考验的
+	性能极佳的哈希算法。据称，其计算速度和产生的分布都很漂亮。这里计算哈希值正是使用了这种
+	哈希算法。早些版本的内核查找拥塞控制算法，是通过名字直接查找的，如下:
 \begin{minted}[linenos]{c}
 /* Simple linear search, don't expect many entries! */
 static struct tcp_congestion_ops *tcp_ca_find(const char *name)
@@ -136,8 +153,8 @@ static struct tcp_congestion_ops *tcp_ca_find(const char *name)
         return NULL;
 }
 \end{minted}
-可以看到，每次查找都要对比字符串，效率较低。这里为了加快查找速度，对名字进行了哈希，
-并通过哈希值的比对来进行查找。
+	可以看到，每次查找都要对比字符串，效率较低。这里为了加快查找速度，对名字进行了哈希，
+	并通过哈希值的比对来进行查找。
 \begin{minted}[linenos]{c}
 /* Simple linear search, not much in here. */
 struct tcp_congestion_ops *tcp_ca_find_key(u32 key)
@@ -152,14 +169,14 @@ struct tcp_congestion_ops *tcp_ca_find_key(u32 key)
         return NULL;
 }
 \end{minted}
-一般情况下，额外的拥塞控制算法都作为单独的模块实现。在模块初始化时，调用
-\mintinline{c}{tcp_register_congestion_control}函数来进行注册，
-之后，即可使用新的拥塞控制算法。
+	一般情况下，拥塞控制算法都作为单独的模块实现。以便于更加方便地使用。在模块初始化时，调用
+	\mintinline{c}{tcp_register_congestion_control}函数来进行注册，
+	之后，即可使用新的拥塞控制算法。
 
-\subsubsection{\mintinline{c}{tcp_unregister_congestion_control()}}
-与注册相对应的，自然有注销一个拥塞控制算法的方法。
-\mintinline{c}{tcp_unregister_congestion_control}用于撤销一个拥塞控制算法。
-其实现如下：
+		\subsubsection{\mintinline{c}{tcp_unregister_congestion_control()}}
+			与注册相对应的，
+			\mintinline{c}{tcp_unregister_congestion_control}用于撤销一个拥塞控制算法。
+			其实现如下：
 \begin{minted}[linenos]{c}
 void tcp_unregister_congestion_control(struct tcp_congestion_ops *ca)
 {
@@ -179,14 +196,14 @@ void tcp_unregister_congestion_control(struct tcp_congestion_ops *ca)
 }
 \end{minted}
 
-\subsection{CUBIC拥塞控制算法}
-Cubic算法是Linux中默认的拥塞控制算法。
+	\subsection{CUBIC拥塞控制算法}
+		Cubic算法是Linux中默认的拥塞控制算法。
 
-\subsubsection{CUBIC算法介绍}
-CUBIC算法的思路是这样的：当发生了一次丢包后，它将此时的窗口大小定义为$W_{max}$。之后，
-进行乘法减小。这里与标准TCP不同，乘法减小时不是直接减小一半，而是乘一个常系数$\beta$。
-快重传和快恢复的部分和标准TCP一致。当它进入到拥塞避免阶段以后，它根据cubic函数凹的部分
-进行窗口的增长，直至到达$W_{max}$为止。之后，它会根据cubic函数凸的部分继续增长。
+			\subsubsection{CUBIC算法介绍}
+				CUBIC算法的思路是这样的：当发生了一次丢包后，它将此时的窗口大小定义为$W_{max}$，之后，
+				进行乘法减小。这里与标准TCP不同，乘法减小时不是直接减小一半，而是乘一个常系数$\beta$。
+				快重传和快恢复的部分和标准TCP一致。当它进入到拥塞避免阶段以后，它根据cubic函数凹的部分
+				进行窗口的增长，直至到达$W_{max}$为止。之后，它会根据cubic函数凸的部分继续增长。
 
 \begin{figure}[htpb]
 \centering

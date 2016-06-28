@@ -69,7 +69,7 @@ struct proto tcp_prot = {
 在分析TCP的过程中会遇到很多RFC，在这里，我们将可能会碰到的RFC罗列出来，
 并进行一定的讨论，便于后面的分析。
 
-\subsection{RFC793——Transmission Control Protocol}
+\subsection{RFC793 : Transmission Control Protocol}
 \label{subsec:rfc793}
 
 该RFC正是定义了TCP协议的那份RFC。在该RFC中，可以查到TCP的很多细节，帮助后续的代码分析。
@@ -213,7 +213,7 @@ RFC793中，对于TCP头部格式的描述摘录如下：
 
 \end{enumerate}
 
-\subsection{RFC1323——TCP Extensions for High Performance}
+\subsection{RFC1323 : TCP Extensions for High Performance}
 \label{subsec:rfc1323}
 
 \subsubsection{简介}
@@ -293,7 +293,7 @@ PAWS的算法流程为：
   \item 其他情况下，将该段视作正常的在窗口中，但顺序不正确的TCP段对待。
 \end{enumerate}
 
-\subsection{RFC1337——TIME-WAIT Assassination Hazards in TCP}
+\subsection{RFC1337 : TIME-WAIT Assassination Hazards in TCP}
 \label{subsec:rfc1337}
 在TCP连接中，存在\mintinline{text}{TIME_WAIT}这样一个阶段。该阶段会等待2MSL的
 时间，以使得属于当前连接的所有的包都消失掉。这样可以保证再次用相同端口建立连接时，
@@ -359,7 +359,7 @@ RFC1337中列举了三种TWA现象带来的危险。
 
 而解决TWA问题的方法较为简单，直接在TIME-WAIT阶段忽略掉所有的RST段即可。
 在\ref{subsec:time_wait}中的代码中可以看到，Linux正是采用了这种方法来解决该问题。
-	\subsection{RFC2018:TCP Selective Acknowledgement Options}
+	\subsection{RFC2018 : TCP Selective Acknowledgement Options}
 
 		\subsubsection{基本介绍}
 			该RFC的引入只要是为了提供一种解决大量丢包的问题的方法。通过选择性确认，接收方可以
@@ -413,10 +413,10 @@ Length: Variable
 			也确实引起了很多讨论。
 
 			关于SACK的更多的叙述，后面再细细补充。remain to do。
-    \subsection{RFC2525——Known TCP Implementation Problems}
+    \subsection{RFC2525 : Known TCP Implementation Problems}
     \label{subsec:rfc2525}
         
-\subsection{RFC3168——The Addition of Explicit Congestion Notification (ECN) to IP}
+\subsection{RFC3168 : The Addition of Explicit Congestion Notification (ECN) to IP}
 \label{subsec:rfc3168}
 该RFC为TCP/IP网络引入了一种新的用于处理网络拥塞问题的方法。在以往的TCP中，
 人们假定网络是一个不透明的黑盒。而发送方通过丢包的情况来推测路由器处发生了拥塞。
@@ -474,11 +474,11 @@ ECE用于在三次握手中协商手否启用ECN功能。CWR用于让接收端�
 
 通过这种方式，就可以在经历网络拥塞时减少丢包的情况，并通知客户端网络的拥塞状态。
 
-\subsection{RFC6937--Proportional Rate Reduction for TCP}
+\subsection{RFC6937 : Proportional Rate Reduction for TCP}
 \label{subsec:rfc6937}
 
     
-\subsection{RFC7413——TCP Fast Open(Draft)}
+\subsection{RFC7413 : TCP Fast Open(Draft)}
 \label{subsec:rfc7413}
 
 RFC7413目前还处于草案状态，它引入了一种试验性的特性：允许在三次握手阶段的SYN和SYN-ACK包中
