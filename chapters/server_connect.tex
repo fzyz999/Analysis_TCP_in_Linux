@@ -19,7 +19,7 @@
 /*
 Location:
 
-    /net/ipv4/tcp_ipv4.c
+    net/ipv4/tcp_ipv4.c
 
 Function:
 
@@ -67,7 +67,8 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
     } else
         sock_rps_save_rxhash(sk, skb);
 \end{minted}
-
+接下来处理收到的数据包，在Linux的TCP实现中，\mintinline{c}{tcp_rcv_state_process}
+负责根据接收到的包维护TCP的状态机。不止是SYN段，其他收到的段大多也会交给该函数处理。
 \begin{minted}[linenos]{C}
     /*处理接收到的SYN段,返回1,表示处理错误*/
     if (tcp_rcv_state_process(sk, skb)) {
@@ -95,7 +96,10 @@ csum_err:
 \end{minted}
             
             \subsubsection{\mintinline{C}{tcp_v4_cookie_check}}
-                该函数如下：
+                TCP的SYN Cookie机制是为了防范SYN Flood攻击而产生的。其思想是在收到
+TCP SYN包后，根据SYN包的信息计算一个cookie值作为SYN+ACK报的初始序列号。当客户端返回
+ACK包时，根据返回的确认序号来判断该连接是否为一个正常的连接。
+\mintinline{c}{tcp_v4_cookie_check}函数正是用于检查该cookie值的。
 \begin{minted}[linenos]{C}
 /*
 Location
@@ -123,7 +127,8 @@ static struct sock *tcp_v4_cookie_check(struct sock *sk, struct sk_buff *skb)
 }
 \end{minted}
 
-                显然对于第一次握手的时候，接收到的确实是syn包，故而直接返回了sk。
+                显然对于第一次握手的时候，接收到的是syn包。此时还没有cookie值，
+故而直接返回了sk。
             \subsubsection{\mintinline{C}{tcp_rcv_state_process}}
                 \label{Server:tcp_rcv_state_process}
                 与第一次握手相关的代码如下：
@@ -303,9 +308,7 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
     }
 \end{minted}
 
-        \textbf{warm entries???}               
-        
-        如果后备队列长度已经达到上限且SYN请求队列中至少有一个握手过程中没有重传过段，则丢弃当前请求。
+        如果存放已经完成连接的套接字的队列长度已经达到上限且SYN请求队列中至少有一个握手过程中没有重传过段，则丢弃当前请求。
 
 \begin{minted}[linenos]{C}
     req = inet_reqsk_alloc(rsk_ops, sk, !want_cookie);
@@ -343,7 +346,7 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
 
 \begin{minted}[linenos]{C}
     /* Note: tcp_v6_init_req() might override ir_iif for link locals */
-    inet_rsk(req)->ir_iif = sk->sk_bound_dev_if;                        //bound device index if != 0 ????
+    inet_rsk(req)->ir_iif = sk->sk_bound_dev_if;
 
     af_ops->init_req(req, sk, skb);
 

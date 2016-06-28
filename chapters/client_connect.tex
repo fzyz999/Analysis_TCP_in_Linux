@@ -689,13 +689,14 @@ Location:
 
 Function:
 
-    This routine deals with incoming acks, but not outgoing ones. */
+    This routine deals with incoming acks, but not outgoing ones.
 
 Parameter:
 
     sk:传输控制块。
     skb:缓存区。
     flag:
+*/
 static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 {
     struct inet_connection_sock *icsk = inet_csk(sk);
