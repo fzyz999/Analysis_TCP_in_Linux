@@ -391,13 +391,13 @@ bool tcp_prequeue(struct sock *sk, struct sk_buff *skb)
 			inet_csk_reset_xmit_timer(sk, ICSK_TIME_DACK,
 						  (3 * tcp_rto_min(sk)) / 4,
 						  TCP_RTO_MAX);
-		///？？？problem??page 931
 	}
 	return true;
 }
 \end{minted}
 		\subsection{自顶向下处理}
 			\subsubsection{\mintinline{C}{tcp_recvmsg}}
+				\label{TCPReceive:tcp_recvmsg}
 				我们一步一步对该函数进行分析。
 \begin{minted}[linenos]{C}
 /*
@@ -418,7 +418,7 @@ Parameter:
 	sk:传输控制块。
 	msg:
 	len:
-	nonblock:
+	nonblock:是否阻塞
 	flags:读取数据的标志。
 	addrlen:
 */
@@ -448,7 +448,7 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
 上述主要处理一些比较异常的情况，接下来就开始进行正常的处理了。
 \begin{minted}[linenos]{C}
 	/*
-		在用户进程进行读取数据之前，必须对传输层进行加锁，这主要时为了在读的过程中，软中断
+		在用户进程进行读取数据之前，必须对传输层进行加锁，这主要是为了防止在读的过程中，软中断
 		操作传输层，从而造成数据的不同步甚至更为严重的不可预料的结果。
 	*/
 	lock_sock(sk);
@@ -473,7 +473,7 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
 \end{minted}
 	继续处理。
 \begin{minted}[linenos]{C}
-	//被修复了？？？啥意思》？》
+	//被修复了
 	if (unlikely(tp->repair)) {
 		//	Operation not permitted
 		err = -EPERM;
@@ -493,7 +493,7 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
 \end{minted}
 	
 	接下来进行数据复制。在把数据从接收缓存复制到用户空间的过程中，
-	会更新当前已复制为止，以及段序号。如果接收数据，则会更新copied\_seq,
+	会更新当前已复制位置，以及段序号。如果接收数据，则会更新copied\_seq,
 	但是如果只是查看数据而并不是从系统缓冲区移走数据，那么不能更新copied\_seq。
 	因此，数据复制到用户空间的过程中，区别接收数据还是查看数据是根据是否更新copied\_seq，
 	所以这里时根据接收数据还是查看来获取要更新标记的地址，而后面的复制操作就完全不关心时接收
@@ -532,7 +532,7 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
 	接下来首先获取一个缓存区。
 \begin{minted}[linenos]{C}
 		/* Next get a buffer. */
-		//接下来获取下一个要读取的的段。
+		//获取下一个要读取的的段。
 		last = skb_peek_tail(&sk->sk_receive_queue);
 		skb_queue_walk(&sk->sk_receive_queue, skb) {
 			last = skb;
@@ -574,10 +574,11 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
 		}
 \end{minted}
 
-	只有在读取完数据后，才能在后备队列不为空的情况下区处理接收到后备队列中的TCP段。
+	只有在读取完数据后，才能在后备队列不为空的情况下去处理接收到后备队列中的TCP段。
 	否则终止本次读取。
 
-	由于是因为用户进程对传输控制块进行的锁定，将TCP段缓存到后备队列，故而，一旦用户进程释放传输控制块就应该立即处理后备队列。
+	由于是因为用户进程对传输控制块进行的锁定，将TCP段缓存到后备队列，
+	故而，一旦用户进程释放传输控制块就应该立即处理后备队列。
 	处理后备队列直接在release\_sock中实现，以确保在任何时候解锁传输控制块时能立即处理后备队列。
 \begin{minted}[linenos]{C}
 		/* Well, if we have backlog, try to process it now yet. */
@@ -586,9 +587,9 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
 			break;
 \end{minted}
 
-	当接收队列中可以读取的段已经读完，在处理prequeue或后备队列之前，我们需要显检查是否会存在一些
-	异常的情况，如果存在这类情况，就需要结束这次读取，返回前当然还顺便检测后备队列是否存在数据，如果有
-	则还需要处理。	
+	当接收队列中可以读取的段已经读完，在处理prequeue或后备队列之前，我们需要先检查是否会存在一些
+	异常的情况。如果存在这类情况，就需要结束这次读取，返回前当然还顺便检测后备队列是否存在数据，如果有
+	则还需要处理。
 \begin{minted}[linenos]{C}
 		if (copied) {
 			/*
