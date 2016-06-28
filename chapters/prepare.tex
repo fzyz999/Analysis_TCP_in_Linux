@@ -359,8 +359,60 @@ RFC1337中列举了三种TWA现象带来的危险。
 
 而解决TWA问题的方法较为简单，直接在TIME-WAIT阶段忽略掉所有的RST段即可。
 在\ref{subsec:time_wait}中的代码中可以看到，Linux正是采用了这种方法来解决该问题。
-    \subsection{RFC2481——A Proposal to add Explicit Congestion Notification(ECN) to IP}
-    \label{subsec:rfc2481}
+	\subsection{RFC2018:TCP Selective Acknowledgement Options}
+
+		\subsubsection{基本介绍}
+			该RFC的引入只要是为了提供一种解决大量丢包的问题的方法。通过选择性确认，接收方可以
+		告知发送方哪些段已经收到了。因此，发送方就只需要重传那些真正看起来丢失的段了。
+		\subsubsection{选项字段}
+			选择性确认使用了两个TCP的选项字段，其中一个是是否支持SACK，即SACK-Permitted,
+		这个只能在连接建立的过程中通过SYN段通告对方自己是否可以支持，另外一个是在连接已经建立的
+		期间通过相应的真正的确认字段来传达被确认的字段。
+		
+			Sack-Permitted Option如下所示:
+\begin{minted}[linenos]{C}
++---------+---------+
+| Kind=4 | Length=2|
++---------+---------+
+\end{minted}
+
+			Sack Option Format如下所示:
+\begin{minted}[linenos]{C}
+Kind: 5
+Length: Variable
+				  +--------+--------+
+				  | Kind=5 | Length |
++--------+--------+--------+--------+
+|         Left Edge of 1st Block    |
++--------+--------+--------+--------+
+|         Right Edge of 1st Block   |
++--------+--------+--------+--------+
+|                                   |
+/               . . .               /
+|                                   |
++--------+--------+--------+--------+
+|         Left Edge of nth Block    |
++--------+--------+--------+--------+
+|         Right Edge of nth Block   |
++--------+--------+--------+--------+
+\end{minted}
+
+			在这个选项中，接收方通告发送方那些没有连续收到的数据块，
+			当接收方收到了那些在空隙中的块之后，就会将左边沿前移，同时
+			将相应的确认序列号填入到TCP首部。
+
+			其中Left Edge of Block和Right Edge of Block均为为32位无符号正数，
+			字节序为网络类型，前者为相应块的起始序列号，后者为这个块的最后一个字节序号加1.
+
+			由于TCP的首部的选项部分最多有40字节，而SACK占据的为8*n+2,故而，一次通告，最多确认
+			4大块。而且SACK经常和用于RTTM的时间戳一起使用，而时间戳占据了10各字节，故而，依次通过也就最多
+			确认3大块了。
+
+			值得一说的是，这个SACK选项是劝告型的，也就是说，他只是只是提醒数据的发送方，我已经接收到了
+			相应的段，但是数据的接收方是允许将SACK选项确认的段删除的。这个也就是常说的接收方违约，这个问题
+			也确实引起了很多讨论。
+
+			关于SACK的更多的叙述，后面再细细补充。remain to do。
     \subsection{RFC2525——Known TCP Implementation Problems}
     \label{subsec:rfc2525}
         

@@ -491,10 +491,11 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 		case TCP_CA_Recovery:
 			//判断是否没有段被确认
 			if (!(flag & FLAG_SND_UNA_ADVANCED)) {
-				//判断是否启用了SACK并且收到的是重复的ACK，				
+				//判断是否启用了SACK,未启用返回1,并且收到的是重复的ACK，				
 				if (tcp_is_reno(tp) && is_dupack)
 					tcp_add_reno_sack(sk);	//记录接收到的重复的ACK数量
 			} else {
+				/*确认了部分重传的段*/
 				if (tcp_try_undo_partial(sk, acked, prior_unsacked, flag))
 					return;
 				/* Partial ACK arrived. Force fast retransmit. */
@@ -506,6 +507,12 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 				return;
 			}
 			break;
+\end{minted}
+
+	关于tcp\_add\_reno\_sack的更多内容，请参见\ref{ACKUpdate:tcp_add_reno_sack};
+	关于tcp\_try\_undo\_partial的更多的内容，请参见\ref{CongestionControlWindowUndo:tcp_try_undo_partial};
+	
+\begin{minted}[linenos]{C}
 		case TCP_CA_Loss:
 			tcp_process_loss(sk, flag, is_dupack);
 			if (icsk->icsk_ca_state != TCP_CA_Open &&
