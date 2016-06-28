@@ -9,15 +9,14 @@
     \label{subsec:tcp_connect_syn}
 
         \subsubsection{基本调用关系}
-
                 \begin{figure}[htb]        
                     \centering
-                    \includegraphics[width=\textwidth]  {images/Client:Send SYN.png}
-					\caption{Client:Send SYN}
-					\label{Client:Send SYN}
-                \end{figure}            
+                    \includegraphics[width=\textwidth]{images/Client:Send_SYN.png}
+                    \caption{Client:Send SYN}
+                    \label{Client:Send SYN}
+                \end{figure}
         \subsubsection{\mintinline{C}{tcp_v4_connect}}
-        	\label{Client:tcp_v4_connect}
+            \label{Client:tcp_v4_connect}
 
             \mintinline{c}{tcp_v4_connect}的主要作用是进行一系列的判断，初始化传输控制块
             并调用相关函数发送SYN包。
@@ -45,11 +44,11 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
         struct sockaddr_in *usin = (struct sockaddr_in *)uaddr; 
         struct inet_sock *inet = inet_sk(sk);
         struct tcp_sock *tp = tcp_sk(sk);
-		/*
-			网络协议主要使用大端存储，
-			be16 means 16 bits stored with big-endian
-			be32,the same.
-		*/
+        /*
+            网络协议主要使用大端存储，
+            be16 means 16 bits stored with big-endian
+            be32,the same.
+        */
         __be16 orig_sport, orig_dport;
         __be32 daddr, nexthop;                  
         struct flowi4 *fl4;
@@ -77,7 +76,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
         }
 \end{minted}
 
-			上面	rcu\_dereference\_protected函数使用了RCU锁，RCU锁的基本介绍参见\ref{Appendix:RCU}.
+            上面    rcu\_dereference\_protected函数使用了RCU锁，RCU锁的基本介绍参见\ref{Appendix:RCU}.
 
             源地址路由是一种特殊的路由策略。一般路由都是通过目的地址来进行的。而有时也需要
             通过源地址来进行路由，例如在有多个网卡等情况下，可以根据源地址来决定走哪个网卡等等。
@@ -87,9 +86,9 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
         orig_dport = usin->sin_port;
         fl4 = &inet->cork.fl.u.ip4;     //对应于ipv4的流
         /* 获取目标的路由缓存项，如果路由查找命中，则生成一个相应的路由缓存项，
-			这个缓存项不但可以用于当前待发送的SYN段，而且对后续的所有数据包都
-			可以起到一个加速路由查找的作用。
-		*/
+            这个缓存项不但可以用于当前待发送的SYN段，而且对后续的所有数据包都
+            可以起到一个加速路由查找的作用。
+        */
         rt = ip_route_connect(fl4, nexthop, inet->inet_saddr,
                               RT_CONN_FLAGS(sk), sk->sk_bound_dev_if,
                               IPPROTO_TCP,
@@ -103,7 +102,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
         }
 \end{minted}
 
-		对于函数IS\_ERR、PTR\_ERR的具体介绍，请参见\ref{Appendix:ERR}.
+        对于函数IS\_ERR、PTR\_ERR的具体介绍，请参见\ref{Appendix:ERR}.
 
 \begin{minted}[linenos]{C}
         /*TCP不能使用类型为组播或多播的路由缓存项*/
@@ -122,7 +121,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
         sk_rcv_saddr_set(sk, inet->inet_saddr);
 
         /* 
-			如果该传输控制块的时间戳已被使用过，则重置各状态 
+            如果该传输控制块的时间戳已被使用过，则重置各状态 
             rx_opt:  tcp_options_received
         */
         if (tp->rx_opt.ts_recent_stamp && inet->inet_daddr != daddr) {
@@ -137,7 +136,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
         }
 
         /*  
-			在启用了tw_recycle:time wait recycle的情况下，重设时间戳 
+            在启用了tw_recycle:time wait recycle的情况下，重设时间戳 
             它用来快速回收TIME_WAIT连接.
         */
         if (tcp_death_row.sysctl_tw_recycle &&
@@ -169,9 +168,9 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
         sk_set_txhash(sk);
 
         /*
-			如果源端口或者目的端口发生改变，则需要重新查找路由，
-			并用新的路由缓存项更新sk中保存的路由缓存项。
-		*/
+            如果源端口或者目的端口发生改变，则需要重新查找路由，
+            并用新的路由缓存项更新sk中保存的路由缓存项。
+        */
         rt = ip_route_newports(fl4, rt, orig_sport, orig_dport,
                                inet->inet_sport, inet->inet_dport, sk);
         if (IS_ERR(rt)) {
@@ -184,7 +183,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
         sk_setup_caps(sk, &rt->dst);
 
         /*  
-			如果没有设置序号，则计算初始序号 
+            如果没有设置序号，则计算初始序号 
             序号与双方的地址与端口号有关系
         */
         if (!tp->write_seq && likely(!tp->repair))
@@ -194,7 +193,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
                                                            usin->sin_port);
                                                            
         /*  
-			计算IP首部的id域的值 
+            计算IP首部的id域的值 
             全局变量jiffies用来记录自系统启动以来产生的节拍的总数       
         */
         inet->inet_id = tp->write_seq ^ jiffies;
@@ -224,7 +223,7 @@ failure:
 \end{minted}
 
         \subsubsection{\mintinline{C}{tcp_connect}}
-			\label{Client:tcp_connect}
+            \label{Client:tcp_connect}
             上面的\mintinline{c}{tcp_v4_connect}会进行一系列的判断，之后真正构造SYN包的部分
             被放在了\mintinline{c}{tcp_connect}中。接下来，我们来分析这个函数。
 
@@ -253,7 +252,7 @@ int tcp_connect(struct sock *sk)
         tcp_connect_init(sk);
 \end{minted}
 
-		关于tcp\_connect\_init更多的内容，请参见\ref{TCPInitialize:tcp_connect_init}。
+        关于tcp\_connect\_init更多的内容，请参见\ref{TCPInitialize:tcp_connect_init}。
 \begin{minted}[linenos]{C}
         if (unlikely(tp->repair)) {             //what does it mean repair?
                 /* 如果repair位被置1，那么结束TCP连接 */
@@ -269,24 +268,24 @@ int tcp_connect(struct sock *sk)
         /* 初始化skb，并自增write_seq的值 */
         tcp_init_nondata_skb(buff, tp->write_seq++, TCPHDR_SYN);
 \end{minted}
-	       
-		关于tcp\_init\_nondata\_skb更多的内容，请参见\ref{TCPInitialize:tcp_init_nondata_skb}。
+           
+        关于tcp\_init\_nondata\_skb更多的内容，请参见\ref{TCPInitialize:tcp_init_nondata_skb}。
 
 \begin{minted}[linenos]{C} 
-		/* 设置时间戳 */
+        /* 设置时间戳 */
         tp->retrans_stamp = tcp_time_stamp;
         /* 将当前的sk_buff添加到发送队列中 */
         tcp_connect_queue_skb(sk, buff);
         /* 
-			ECN (Explicit Congestion Notification,)
-			支持显式拥塞控制
+            ECN (Explicit Congestion Notification,)
+            支持显式拥塞控制
         */
         tcp_ecn_send_syn(sk, buff);         //what does this function do?
 
         /* 
-			发送SYN包，这里同时还考虑了Fast Open的情况，意思就是
-			可以在连接建立的时候同时发数据。
-		*/
+            发送SYN包，这里同时还考虑了Fast Open的情况，意思就是
+            可以在连接建立的时候同时发数据。
+        */
         err = tp->fastopen_req ? tcp_send_syn_data(sk, buff) :
               tcp_transmit_skb(sk, buff, 1, sk->sk_allocation);
         if (err == -ECONNREFUSED)           /*Connection refused*/
@@ -314,13 +313,13 @@ int tcp_connect(struct sock *sk)
 
                 \begin{figure}[htb]        
                     \centering
-                    \includegraphics[width=\textwidth]  {images/Client:Receive SYN +ACK.png}
-					\caption{Client:Receive SYN+ACK}
-					\label{Client:Receive SYN+ACK}
+                    \includegraphics[width=\textwidth]{images/Client:Receive_SYN+ACK.png}
+                    \caption{Client:Receive SYN+ACK}
+                    \label{Client:Receive SYN+ACK}
                 \end{figure} 
 
     \subsubsection{\mintinline{c}{tcp_rcv_state_process}}
-		\label{SYN+ACK:tcp_rcv_state_process}
+        \label{SYN+ACK:tcp_rcv_state_process}
         \mintinline{c}{tcp_rcv_state_process}实现了TCP状态机相对核心的一个部分。
         该函数可以处理除ESTABLISHED和TIME\_WAIT状态以外的情况下的接收过程。
         这里，我们仅关心主动连接情况下的处理。在\ref{Client:tcp_v4_connect}中，我们
@@ -372,7 +371,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 
                     /* 处理紧急数据并检测是否有数据需要发送 */
                     tcp_urg(sk, skb, th);
-					/*释放缓存*/
+                    /*释放缓存*/
                     __kfree_skb(skb);
                     tcp_data_snd_check(sk);
                     return 0;
@@ -382,10 +381,10 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 }
 \end{minted}
 
-	关于tcp\_urg的详细内容，请参见\ref{TCPUrgent:tcp_urg}.
+    关于tcp\_urg的详细内容，请参见\ref{TCPUrgent:tcp_urg}.
 
     \subsubsection{\mintinline{c}{tcp_rcv_synsent_state_process}}
-		\label{SYN+ACK:tcp_rcv_synsent_state_process}
+        \label{SYN+ACK:tcp_rcv_synsent_state_process}
         具体的处理代码在\mintinline{c}{tcp_rcv_synsent_state_process}中，通过
         命名就可以看出，该函数是专门用于处理SYN\_SENT状态下收到数据的情况。
 
@@ -426,10 +425,10 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
                 tp->rx_opt.rcv_tsecr -= tp->tsoffset;
 \end{minted}
 
-		关于tcp\_parse\_options的更多的内容，请参见\ref{TCPOptions:tcp_parse_options}。
+        关于tcp\_parse\_options的更多的内容，请参见\ref{TCPOptions:tcp_parse_options}。
 
-		接下来的部分，就是按照TCP协议的标准来实现相应的行为。注释中出现的RFC793即是描述TCP协议
-		的RFC原文中的文本。
+        接下来的部分，就是按照TCP协议的标准来实现相应的行为。注释中出现的RFC793即是描述TCP协议
+        的RFC原文中的文本。
 \begin{minted}[linenos]{c}
         if (th->ack) {
                 /* rfc793:
@@ -445,7 +444,7 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
                 if (!after(TCP_SKB_CB(skb)->ack_seq, tp->snd_una) ||
                     after(TCP_SKB_CB(skb)->ack_seq, tp->snd_nxt))
                         goto reset_and_undo;
-				/*必须在对应的时间内*/
+                /*必须在对应的时间内*/
                 if (tp->rx_opt.saw_tstamp && tp->rx_opt.rcv_tsecr &&
                     !between(tp->rx_opt.rcv_tsecr, tp->retrans_stamp,
                              tcp_time_stamp)) {
@@ -496,7 +495,7 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 
                 /* 初始化与窗口有关的参数 */
                 tcp_init_wl(tp, TCP_SKB_CB(skb)->seq);
-				/*处理ACK*/
+                /*处理ACK*/
                 tcp_ack(sk, skb, FLAG_SLOWPATH);
 
                 /* Ok.. it's good. Set up sequence numbers and
@@ -528,8 +527,8 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
                         tp->rx_opt.tstamp_ok= 1;
                         tp->tcp_header_len =
                                 sizeof(struct tcphdr) + TCPOLEN_TSTAMP_ALIGNED;
-						/*减去选项长度*/                        
-						tp->advmss -= TCPOLEN_TSTAMP_ALIGNED;
+                        /*减去选项长度*/                        
+                        tp->advmss -= TCPOLEN_TSTAMP_ALIGNED;
                         tcp_store_ts_recent(tp);
                 } else {
                         tp->tcp_header_len = sizeof(struct tcphdr);
@@ -680,238 +679,238 @@ reset_and_undo:
 }
 \end{minted}
 
-		\subsubsection{\mintinline{C}{tcp_ack}}
-			\label{ClientReceiveSYN+ACK:tcp_ack}
+        \subsubsection{\mintinline{C}{tcp_ack}}
+            \label{ClientReceiveSYN+ACK:tcp_ack}
 \begin{minted}[linenos]{C}
 /*
 Location:
 
-	net/ipv4/tcp_input.c
+    net/ipv4/tcp_input.c
 
 Function:
 
-	This routine deals with incoming acks, but not outgoing ones. */
+    This routine deals with incoming acks, but not outgoing ones. */
 
 Parameter:
 
-	sk:传输控制块。
-	skb:缓存区。
-	flag:
+    sk:传输控制块。
+    skb:缓存区。
+    flag:
 static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 {
-	struct inet_connection_sock *icsk = inet_csk(sk);
-	struct tcp_sock *tp = tcp_sk(sk);
-	struct tcp_sacktag_state sack_state;
-	u32 prior_snd_una = tp->snd_una;
-	u32 ack_seq = TCP_SKB_CB(skb)->seq;//起始序号
-	u32 ack = TCP_SKB_CB(skb)->ack_seq;//确认号
-	bool is_dupack = false;
-	u32 prior_fackets;
-	int prior_packets = tp->packets_out;
-	const int prior_unsacked = tp->packets_out - tp->sacked_out;
-	int acked = 0; /* Number of packets newly acked */
-	/*?*/
-	sack_state.first_sackt.v64 = 0;
+    struct inet_connection_sock *icsk = inet_csk(sk);
+    struct tcp_sock *tp = tcp_sk(sk);
+    struct tcp_sacktag_state sack_state;
+    u32 prior_snd_una = tp->snd_una;
+    u32 ack_seq = TCP_SKB_CB(skb)->seq;//起始序号
+    u32 ack = TCP_SKB_CB(skb)->ack_seq;//确认号
+    bool is_dupack = false;
+    u32 prior_fackets;
+    int prior_packets = tp->packets_out;
+    const int prior_unsacked = tp->packets_out - tp->sacked_out;
+    int acked = 0; /* Number of packets newly acked */
+    /*?*/
+    sack_state.first_sackt.v64 = 0;
 
-	/* We very likely will need to access write queue head. */
-	prefetchw(sk->sk_write_queue.next);
+    /* We very likely will need to access write queue head. */
+    prefetchw(sk->sk_write_queue.next);
 
-	/* If the ack is older than previous acks
-	 * then we can probably ignore it.
-	 */
-	if (before(ack, prior_snd_una)) {
-		/* RFC 5961 5.2 [Blind Data Injection Attack].[Mitigation] */
-		if (before(ack, prior_snd_una - tp->max_window)) {
-			tcp_send_challenge_ack(sk, skb);
-			return -1;
-		}
-		goto old_ack;
-	}
+    /* If the ack is older than previous acks
+     * then we can probably ignore it.
+     */
+    if (before(ack, prior_snd_una)) {
+        /* RFC 5961 5.2 [Blind Data Injection Attack].[Mitigation] */
+        if (before(ack, prior_snd_una - tp->max_window)) {
+            tcp_send_challenge_ack(sk, skb);
+            return -1;
+        }
+        goto old_ack;
+    }
 
-	/* If the ack includes data we haven't sent yet, discard
-	 * this segment (RFC793 Section 3.9).
-	 */
-	if (after(ack, tp->snd_nxt))
-		goto invalid_ack;
-	
-	if (icsk->icsk_pending == ICSK_TIME_EARLY_RETRANS ||
-	    icsk->icsk_pending == ICSK_TIME_LOSS_PROBE)
-		tcp_rearm_rto(sk);	/* 重置超时重传定时器*/ 
-	/*说明已经改变了snd_una位置*/
-	if (after(ack, prior_snd_una)) {
-		flag |= FLAG_SND_UNA_ADVANCED;
-		icsk->icsk_retransmits = 0;
-	}
+    /* If the ack includes data we haven't sent yet, discard
+     * this segment (RFC793 Section 3.9).
+     */
+    if (after(ack, tp->snd_nxt))
+        goto invalid_ack;
+    
+    if (icsk->icsk_pending == ICSK_TIME_EARLY_RETRANS ||
+        icsk->icsk_pending == ICSK_TIME_LOSS_PROBE)
+        tcp_rearm_rto(sk);  /* 重置超时重传定时器*/ 
+    /*说明已经改变了snd_una位置*/
+    if (after(ack, prior_snd_una)) {
+        flag |= FLAG_SND_UNA_ADVANCED;
+        icsk->icsk_retransmits = 0;
+    }
 
-	prior_fackets = tp->fackets_out;
+    prior_fackets = tp->fackets_out;
 
-	/* ts_recent update must be made after we are sure that the packet
-	 * is in window.
-	 */
-	if (flag & FLAG_UPDATE_TS_RECENT)
-		tcp_replace_ts_recent(tp, TCP_SKB_CB(skb)->seq);/*替换时间戳*/
+    /* ts_recent update must be made after we are sure that the packet
+     * is in window.
+     */
+    if (flag & FLAG_UPDATE_TS_RECENT)
+        tcp_replace_ts_recent(tp, TCP_SKB_CB(skb)->seq);/*替换时间戳*/
 \end{minted}
 
-	关于tcp\_replace\_ts\_recent更多的内容，请参见\ref{TCPTimestamp:tcp_replace_ts_recent}。
+    关于tcp\_replace\_ts\_recent更多的内容，请参见\ref{TCPTimestamp:tcp_replace_ts_recent}。
 
 \begin{minted}[linenos]{C}
-	/*如果执行的是快速路径并且确认号大于先前的snd_una*/
-	if (!(flag & FLAG_SLOWPATH) && after(ack, prior_snd_una)) {
-		/* Window is constant, pure forward advance.
-		 * No more checks are required.
-		 * Note, we use the fact that SND.UNA>=SND.WL2.
-		 */
-		/*更新窗口的左边界，tp->snd_wl1 = seq;*/
-		tcp_update_wl(tp, ack_seq);
-		/*更新snduna*/
-		tcp_snd_una_update(tp, ack);
-		/*标记进行了更新*/
-		flag |= FLAG_WIN_UPDATE;
-		/*通知拥塞控制算法本次是快速路径*/
-		tcp_in_ack_event(sk, CA_ACK_WIN_UPDATE);
+    /*如果执行的是快速路径并且确认号大于先前的snd_una*/
+    if (!(flag & FLAG_SLOWPATH) && after(ack, prior_snd_una)) {
+        /* Window is constant, pure forward advance.
+         * No more checks are required.
+         * Note, we use the fact that SND.UNA>=SND.WL2.
+         */
+        /*更新窗口的左边界，tp->snd_wl1 = seq;*/
+        tcp_update_wl(tp, ack_seq);
+        /*更新snduna*/
+        tcp_snd_una_update(tp, ack);
+        /*标记进行了更新*/
+        flag |= FLAG_WIN_UPDATE;
+        /*通知拥塞控制算法本次是快速路径*/
+        tcp_in_ack_event(sk, CA_ACK_WIN_UPDATE);
 
-		NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_TCPHPACKS);
+        NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_TCPHPACKS);
 \end{minted}
 
-	关于tcp\_snd\_una\_update更多的内容，请参见\ref{ACKUpdate:tcp_snd_una_update}.
+    关于tcp\_snd\_una\_update更多的内容，请参见\ref{ACKUpdate:tcp_snd_una_update}.
 
 \begin{minted}[linenos]{C}
-	} else {
-		/*慢速路径*/
-		u32 ack_ev_flags = CA_ACK_SLOWPATH;
-		/*判断ACK是否是负载数据携带的*/
-		if (ack_seq != TCP_SKB_CB(skb)->end_seq)
-			flag |= FLAG_DATA;
-		else
-			NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_TCPPUREACKS);
-		/*更新发送窗口*/
-		flag |= tcp_ack_update_window(sk, skb, ack, ack_seq);
+    } else {
+        /*慢速路径*/
+        u32 ack_ev_flags = CA_ACK_SLOWPATH;
+        /*判断ACK是否是负载数据携带的*/
+        if (ack_seq != TCP_SKB_CB(skb)->end_seq)
+            flag |= FLAG_DATA;
+        else
+            NET_INC_STATS_BH(sock_net(sk), LINUX_MIB_TCPPUREACKS);
+        /*更新发送窗口*/
+        flag |= tcp_ack_update_window(sk, skb, ack, ack_seq);
 \end{minted}
 
-	关于tcp\_ack\_update\_window更多的内容，请参考\ref{WindowUpdate:tcp_ack_update_window}.
+    关于tcp\_ack\_update\_window更多的内容，请参考\ref{WindowUpdate:tcp_ack_update_window}.
 
 \begin{minted}[linenos]{C}
-		/*存在SACK选项，标记重传选项*/
-		if (TCP_SKB_CB(skb)->sacked)
-			flag |= tcp_sacktag_write_queue(sk, skb, prior_snd_una,
-							&sack_state);
-		/*检测是否存在ECE标志*/
-		if (tcp_ecn_rcv_ecn_echo(tp, tcp_hdr(skb))) {
-			flag |= FLAG_ECE;
-			ack_ev_flags |= CA_ACK_ECE;
-		}
-		if (flag & FLAG_WIN_UPDATE)
-			ack_ev_flags |= CA_ACK_WIN_UPDATE;
+        /*存在SACK选项，标记重传选项*/
+        if (TCP_SKB_CB(skb)->sacked)
+            flag |= tcp_sacktag_write_queue(sk, skb, prior_snd_una,
+                            &sack_state);
+        /*检测是否存在ECE标志*/
+        if (tcp_ecn_rcv_ecn_echo(tp, tcp_hdr(skb))) {
+            flag |= FLAG_ECE;
+            ack_ev_flags |= CA_ACK_ECE;
+        }
+        if (flag & FLAG_WIN_UPDATE)
+            ack_ev_flags |= CA_ACK_WIN_UPDATE;
 
-		tcp_in_ack_event(sk, ack_ev_flags);
-	}
+        tcp_in_ack_event(sk, ack_ev_flags);
+    }
 
-	/* We passed data and got it acked, remove any soft error
-	 * log. Something worked...
-	 */
-	sk->sk_err_soft = 0;
-	icsk->icsk_probes_out = 0;
-	/*设置时间戳*/
-	tp->rcv_tstamp = tcp_time_stamp;
-	/*检测是否有未发送的段，没有则跳转*/
-	if (!prior_packets)
-		goto no_queue;
+    /* We passed data and got it acked, remove any soft error
+     * log. Something worked...
+     */
+    sk->sk_err_soft = 0;
+    icsk->icsk_probes_out = 0;
+    /*设置时间戳*/
+    tp->rcv_tstamp = tcp_time_stamp;
+    /*检测是否有未发送的段，没有则跳转*/
+    if (!prior_packets)
+        goto no_queue;
 
-	/* See if we can take anything off of the retransmit queue. */
-	acked = tp->packets_out;
-	flag |= tcp_clean_rtx_queue(sk, prior_fackets, prior_snd_una,
-				    &sack_state);
-	/*得到确认的包的数量*/
-	acked -= tp->packets_out;
-	/*
-		tcp_ack_is_dubious用于判断ACK是不是可疑的
-			1.ACK是不是重复的
-			2.是不是带有SACK选项并且有ECE	
-			3.是不是Open态
-		只要有一项为真就会返回1.
-	*/
-	if (tcp_ack_is_dubious(sk, flag)) {
-		is_dupack = !(flag & (FLAG_SND_UNA_ADVANCED | FLAG_NOT_DUP));
-		tcp_fastretrans_alert(sk, acked, prior_unsacked,
-				      is_dupack, flag);
-	}
+    /* See if we can take anything off of the retransmit queue. */
+    acked = tp->packets_out;
+    flag |= tcp_clean_rtx_queue(sk, prior_fackets, prior_snd_una,
+                    &sack_state);
+    /*得到确认的包的数量*/
+    acked -= tp->packets_out;
+    /*
+        tcp_ack_is_dubious用于判断ACK是不是可疑的
+            1.ACK是不是重复的
+            2.是不是带有SACK选项并且有ECE   
+            3.是不是Open态
+        只要有一项为真就会返回1.
+    */
+    if (tcp_ack_is_dubious(sk, flag)) {
+        is_dupack = !(flag & (FLAG_SND_UNA_ADVANCED | FLAG_NOT_DUP));
+        tcp_fastretrans_alert(sk, acked, prior_unsacked,
+                      is_dupack, flag);
+    }
 \end{minted}
 
-	关于tcp\_ack\_is\_dubious的更多的内容，请参见\ref{ACKCheck:tcp_ack_is_dubious}.
-	关于tcp\_fastretrans\_alert的更多内容，请参见\ref{CongestionDeal:tcp_fastretrans_alert}.
+    关于tcp\_ack\_is\_dubious的更多的内容，请参见\ref{ACKCheck:tcp_ack_is_dubious}.
+    关于tcp\_fastretrans\_alert的更多内容，请参见\ref{CongestionDeal:tcp_fastretrans_alert}.
 \begin{minted}[linenos]{C}
-	if (tp->tlp_high_seq)
-		tcp_process_tlp_ack(sk, ack, flag);
+    if (tp->tlp_high_seq)
+        tcp_process_tlp_ack(sk, ack, flag);
 
-	/* Advance cwnd if state allows */
-	if (tcp_may_raise_cwnd(sk, flag))
-		tcp_cong_avoid(sk, ack, acked);
-	/*
-		如果ACK确认的段时包括新的数据、SYN段、以及接收到新的SACK选项或者
-		接收到的ACK是重复的，则认为该传输控制块的输出路由缓存项是有效的。
-	*/
-	if ((flag & FLAG_FORWARD_PROGRESS) || !(flag & FLAG_NOT_DUP)) {
-		struct dst_entry *dst = __sk_dst_get(sk);
-		if (dst)
-			dst_confirm(dst);
-	}
-	if (icsk->icsk_pending == ICSK_TIME_RETRANS)
-		tcp_schedule_loss_probe(sk);
-	tcp_update_pacing_rate(sk);
-	return 1;
+    /* Advance cwnd if state allows */
+    if (tcp_may_raise_cwnd(sk, flag))
+        tcp_cong_avoid(sk, ack, acked);
+    /*
+        如果ACK确认的段时包括新的数据、SYN段、以及接收到新的SACK选项或者
+        接收到的ACK是重复的，则认为该传输控制块的输出路由缓存项是有效的。
+    */
+    if ((flag & FLAG_FORWARD_PROGRESS) || !(flag & FLAG_NOT_DUP)) {
+        struct dst_entry *dst = __sk_dst_get(sk);
+        if (dst)
+            dst_confirm(dst);
+    }
+    if (icsk->icsk_pending == ICSK_TIME_RETRANS)
+        tcp_schedule_loss_probe(sk);
+    tcp_update_pacing_rate(sk);
+    return 1;
 \end{minted}
 
-	接下来，源代码中已经有一定的注释，就不再分析了。
+    接下来，源代码中已经有一定的注释，就不再分析了。
 \begin{minted}[linenos]{C}
 no_queue:
-	/* If data was DSACKed, see if we can undo a cwnd reduction. */
-	if (flag & FLAG_DSACKING_ACK)
-		tcp_fastretrans_alert(sk, acked, prior_unsacked,
-				      is_dupack, flag);
-	/* If this ack opens up a zero window, clear backoff.  It was
-	 * being used to time the probes, and is probably far higher than
-	 * it needs to be for normal retransmission.
-	 */
-	if (tcp_send_head(sk))
-		tcp_ack_probe(sk);
+    /* If data was DSACKed, see if we can undo a cwnd reduction. */
+    if (flag & FLAG_DSACKING_ACK)
+        tcp_fastretrans_alert(sk, acked, prior_unsacked,
+                      is_dupack, flag);
+    /* If this ack opens up a zero window, clear backoff.  It was
+     * being used to time the probes, and is probably far higher than
+     * it needs to be for normal retransmission.
+     */
+    if (tcp_send_head(sk))
+        tcp_ack_probe(sk);
 
-	if (tp->tlp_high_seq)
-		tcp_process_tlp_ack(sk, ack, flag);
-	return 1;
+    if (tp->tlp_high_seq)
+        tcp_process_tlp_ack(sk, ack, flag);
+    return 1;
 
 invalid_ack:
-	SOCK_DEBUG(sk, "Ack %u after %u:%u\n", ack, tp->snd_una, tp->snd_nxt);
-	return -1;
+    SOCK_DEBUG(sk, "Ack %u after %u:%u\n", ack, tp->snd_una, tp->snd_nxt);
+    return -1;
 
 old_ack:
-	/* If data was SACKed, tag it and see if we should send more data.
-	 * If data was DSACKed, see if we can undo a cwnd reduction.
-	 */
-	if (TCP_SKB_CB(skb)->sacked) {
-		flag |= tcp_sacktag_write_queue(sk, skb, prior_snd_una,
-						&sack_state);
-		tcp_fastretrans_alert(sk, acked, prior_unsacked,
-				      is_dupack, flag);
-	}
+    /* If data was SACKed, tag it and see if we should send more data.
+     * If data was DSACKed, see if we can undo a cwnd reduction.
+     */
+    if (TCP_SKB_CB(skb)->sacked) {
+        flag |= tcp_sacktag_write_queue(sk, skb, prior_snd_una,
+                        &sack_state);
+        tcp_fastretrans_alert(sk, acked, prior_unsacked,
+                      is_dupack, flag);
+    }
 
-	SOCK_DEBUG(sk, "Ack %u before %u:%u\n", ack, tp->snd_una, tp->snd_nxt);
-	return 0;
+    SOCK_DEBUG(sk, "Ack %u before %u:%u\n", ack, tp->snd_una, tp->snd_nxt);
+    return 0;
 }
 \end{minted} 
-	\subsection{第三次握手:发送ACK包}
-		\label{Client:send_ack}
-		\subsubsection{基本调用关系}
-		            \begin{figure}[htb]        
-		                \centering
-		                \includegraphics[width=\textwidth]  {images/Client:Send ACK.png}
-						\caption{Client:Send ACK}
-						\label{Client:Send ACK}
-		            \end{figure} 
-		
-		\subsubsection{tcp\_send\_ack}
-			\label{Client:tcp_send_ack}
-				在\ref{Client:Recv SYN+ACK}分析的代码的最后，我们看到它调用了\mintinline{c}{tcp_send_ack()}来发送ACK包，
-				从而实现第三次握手。
+    \subsection{第三次握手:发送ACK包}
+        \label{Client:send_ack}
+        \subsubsection{基本调用关系}
+                    \begin{figure}[htb]        
+                        \centering
+                        \includegraphics[width=\textwidth]  {images/Client:Send_ACK.png}
+                        \caption{Client:Send ACK}
+                        \label{Client:Send ACK}
+                    \end{figure} 
+        
+        \subsubsection{tcp\_send\_ack}
+            \label{Client:tcp_send_ack}
+                在\ref{Client:Recv SYN+ACK}分析的代码的最后，我们看到它调用了\mintinline{c}{tcp_send_ack()}来发送ACK包，
+                从而实现第三次握手。
 
 \begin{minted}[linenos]{c}
 /* 
@@ -922,7 +921,7 @@ Location
 Function:
 
     This routine sends an ack and also updates the window.
-	该函数用于发送ACK，并更新窗口的大小 
+    该函数用于发送ACK，并更新窗口的大小 
 
 Parameter:
 
@@ -971,6 +970,6 @@ void tcp_send_ack(struct sock *sk)
 }
 \end{minted}
 
-		关于tcp\_init\_nondata\_skb更多的内容请参见\ref{TCPInitialize:tcp_init_nondata_skb}。
+        关于tcp\_init\_nondata\_skb更多的内容请参见\ref{TCPInitialize:tcp_init_nondata_skb}。
 
 
