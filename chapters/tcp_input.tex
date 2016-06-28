@@ -7,28 +7,28 @@
         \begin{figure}[htb]        
             \centering
             \includegraphics[width=\textwidth]  {images/Linux Network Receive.pdf}
+			\caption{Linux Network Receive}
         \end{figure}    
-		正如上图所示，Linux内核的网络数据接收时分为以上5个层次的。
-		每个层次都有自己功能，相互依赖，同时又独立成块。
+		正如上图所示，Linux内核在接收网络数据时分为以上5个层次。
+		每个层次都有自己的功能，相互依赖，同时又独立成块。
 		下面，我们来依次介绍这些层次。
 \begin{enumerate}
-\item[应用层]			对于应用层来说，提供多种接口来接收数据，包括read,recv,recvfrom.
-\item[BSD Socket层]		这一层主要是在应用层进行进一步的处理。
-\item[INET Socket层]		当被IP层的函数调用的时候，如果发现用户进程因正在操作传输控制块而将其锁定
-						就会将未处理的TCP段添加到后备队列中，而一旦用户进程解锁传输控制块，就会理解处理
+\item[应用层]				对于应用层来说，提供多种接口来接收数据，包括read,recv,recvfrom.
+\item[BSD Socket层]			这一层主要是在应用层进行进一步的处理。
+\item[INET Socket层]			当被IP层的函数调用的时候，如果发现用户进程因正在操作传输控制块而将其锁定
+						就会将未处理的TCP段添加到后备队列中，而一旦用户进程解锁传输控制块，就会立即处理
 						后备队列，将TCP段处理之后的直接添加到接收队列中。
-						当被BSD Socket的函数调用的时候，此时说明用户此时需要数据，那么我们就利用tcp\_recvmsg来
+						当被BSD Socket层的函数调用的时候，此时说明用户此时需要数据，那么我们就利用tcp\_recvmsg来
 						进行消息接收，当然，起初得判断队列是否为空，不为空才可以直接处理，为空就得进一步进行相关的处理。
-\item[IP层]
-				IP层则主要是在系统调度的时候，根据数据接收队列中是否由数据进行进一步的检验，
-				判断该包是不是发往该主机。然后进行数据包的重组(这是因为TCP数据有可能因为太大而被分片)，
-				然后调用INET层的函数进行进一步的处理。
-\item[硬件层]     这一部分主要是网卡接收到数据之后，进行发出请求中断，
-				  然后调用相关函数进行处理，将接收到的数据放入到数据接收队列中。
-					当然，这时，那些没有经过FCS检验过的数据包这时候已经被抛弃了。
+\item[IP层]					IP层则主要是在系统调度的时候，根据数据接收队列中是否由数据进行进一步的检验，
+						判断该包是不是发往该主机。然后进行数据包的重组(这是因为TCP数据有可能因为太大而被分片)，
+						然后调用INET层的函数进行进一步的处理。
+\item[硬件层]     			这一部分主要是网卡接收到数据之后，进行发出请求中断，
+				  		然后调用相关函数进行处理，将接收到的数据放入到数据接收队列中。
+						当然，这时，那些没有经过FCS检验过的数据包这时候已经被抛弃了。
 \end{enumerate}
 
-		而在本文的分析中，我们主要关注的时TCP层的实现，故而我们主要分析INET Socket层。
+		而在本文的分析中，我们主要关注的是TCP层的实现，故而我们主要分析INET Socket层。
 
 		TCP传输控制块主要有三个关于接收的队列，接收队列，prequeue队列和后备队列。
 
@@ -36,8 +36,8 @@
 		接收队列中，等待用户进程从接收队列中获取TCP段后复制到用户空间中，最终删除并释放。
 
 		而不启用tcp\_low\_latency这个选项的时候，则可以提高tcp协议栈的吞吐量及反应速度。TCP传输控制块在软中断中
-		将TCP段添加到prequeue队列中，然后立即处理prequeue队列中的段，如果用户进程正在读取数据，则可以直接复制数据到用户空间
-		的缓存区中，否则添加到接收队列中，然后从软中断返回。在多数情况下，有机会处理prequeue队列中的ban，但只有当用户
+		将TCP段添加到prequeue队列中，然后立即处理prequeue队列中的段。如果用户进程正在读取数据，则可以直接复制数据到用户空间
+		的缓存区中，否则添加到接收队列中，然后从软中断返回。在多数情况下，有机会处理prequeue队列中的段，但只有当用户
 		进程在进行recv类系统调用之前，才在软中断中复制数据到用户空间的缓存区。
 
 		当然，在用户进程因操作传输控制块而将其锁定时，无论是否启用tcp\_low\_latency，都会将未处理的TCP段添加到后备队列中，一旦用户
@@ -45,6 +45,7 @@
 	\section{自底向上调用与自顶向下调用}
 		\subsection{自底向上处理}
 			\subsubsection{\mintinline{C}{tcp_v4_rcv}}
+				\label{TCPReceive:tcp_v4_rcv}
 				正如上面的流程图所展示的样子，当IP层接收到报文，或将多个分片组装成一个完整的IP数据报之后，会调用
 				传输层的接收函数，传递给传输层处理。
 \begin{minted}[linenos]{C}
@@ -82,6 +83,11 @@ int tcp_v4_rcv(struct sk_buff *skb)
 	*/
 	if (!pskb_may_pull(skb, sizeof(struct tcphdr)))
 		goto discard_it;
+\end{minted}
+
+	关于pskb\_may\_pull更多的内容，请参见\ref{BSD:pskb_may_pull}.
+
+\begin{minted}[linenos]{C}
 	/*得到相关报文的头部*/
 	th = tcp_hdr(skb);
 	/*
@@ -91,11 +97,15 @@ int tcp_v4_rcv(struct sk_buff *skb)
 	if (th->doff < sizeof(struct tcphdr) / 4)
 		goto bad_packet;
 	/*
-		检测整个TCP段长度和TCP首部长度是否正常，如有异常，则丢弃。
+		检测整个TCP首部长度是否正常，如有异常，则丢弃。
 	*/	
 	if (!pskb_may_pull(skb, th->doff * 4))
 		goto discard_it;
+\end{minted}
 
+	关于pskb\_may\_pull更多的内容，请参见\ref{BSD:pskb_may_pull}.
+
+\begin{minted}[linenos]{C}
 	/* An explanation is required here, I think.
 	 * Packet length and doff are validated by header prediction,
 	 * provided case of th->doff==0 is eliminated.
@@ -118,12 +128,13 @@ int tcp_v4_rcv(struct sk_buff *skb)
 	 */
 	memmove(&TCP_SKB_CB(skb)->header.h4, IPCB(skb),
 		sizeof(struct inet_skb_parm));
+	/*禁止编译器或底层做优化*/
 	barrier();
 
-	TCP_SKB_CB(skb)->seq = ntohl(th->seq);
+	TCP_SKB_CB(skb)->seq = ntohl(th->seq);	//段开始序号
 	TCP_SKB_CB(skb)->end_seq = (TCP_SKB_CB(skb)->seq + th->syn + th->fin +
-				    skb->len - th->doff * 4);
-	TCP_SKB_CB(skb)->ack_seq = ntohl(th->ack_seq);
+				    skb->len - th->doff * 4);//
+	TCP_SKB_CB(skb)->ack_seq = ntohl(th->ack_seq);//下一个等待发送的字节的序号
 	TCP_SKB_CB(skb)->tcp_flags = tcp_flag_byte(th);
 	TCP_SKB_CB(skb)->tcp_tw_isn = 0;
 	TCP_SKB_CB(skb)->ip_dsfield = ipv4_get_dsfield(iph);
@@ -133,7 +144,7 @@ int tcp_v4_rcv(struct sk_buff *skb)
 	接下来调用\mintinline{C}{__inet_lookup}在ehash或bhash散列表中根据地址和端口来查找
 	传输控制块。如果在ehash中找到，则表示已经经历了三次握手并且已建立了连接，可以进行正常
 	的通信。如果在bhash中找到，则表示已经绑定已经绑定了端口，处于侦听状态。如果在两个散列表中
-	都不查找不到，说明此时对应的传输控制块还没有创建，跳转到\mintinline{C}{no_tcp_socket}
+	都查找不到，说明此时对应的传输控制块还没有创建，跳转到\mintinline{C}{no_tcp_socket}
 	处处理。
 \begin{minted}[linenos]{C}
 lookup:
@@ -145,7 +156,7 @@ lookup:
 	接下来继续处理。
 \begin{minted}[linenos]{C}
 process:
-	//如果是TIME_WAIT状态，就跳转到相应位置处理。
+	//TIME_WAIT状态，主要处理释放连接
 	if (sk->sk_state == TCP_TIME_WAIT)
 		goto do_time_wait;
 	//NEW_SYN_RECV状态,???
@@ -178,6 +189,7 @@ process:
 			return 0;
 		}
 	}
+	/*ttl小于给定的最小的ttl*/
 	if (unlikely(iph->ttl < inet_sk(sk)->min_ttl)) {
 		NET_INC_STATS_BH(net, LINUX_MIB_TCPMINTTLDROP);
 		goto discard_and_relse;
@@ -222,6 +234,7 @@ process:
 			ret = tcp_v4_do_rcv(sk, skb);
 	} else if (unlikely(sk_add_backlog(sk, skb,
 					   sk->sk_rcvbuf + sk->sk_sndbuf))) {
+			/*添加到后备队列成功*/
 		bh_unlock_sock(sk);
 		NET_INC_STATS_BH(net, LINUX_MIB_TCPBACKLOGDROP);
 		goto discard_and_relse;
@@ -232,6 +245,7 @@ process:
 
 \begin{minted}[linenos]{C}
 put_and_return:
+	/*递减引用计数，当计数为0的时候，使用sk\_free释放传输控制块*/
 	sock_put(sk);
 
 	return ret;
@@ -239,6 +253,7 @@ put_and_return:
 	处理没有创建传输控制块收到报文，校验错误，坏包的情况，给对端发送RST报文。
 */
 no_tcp_socket:
+	/*查找IPsec数据库，如果查找失败，进行相应处理.*/
 	if (!xfrm4_policy_check(NULL, XFRM_POLICY_IN, skb))
 		goto discard_it;
 
@@ -264,14 +279,19 @@ discard_and_relse:
 /*处理TIME_WAIT状态*/
 do_time_wait:
 	if (!xfrm4_policy_check(NULL, XFRM_POLICY_IN, skb)) {
+		/*inet_timewait_sock减少引用计数*/		
 		inet_twsk_put(inet_twsk(sk));
 		goto discard_it;
 	}
-
 	if (tcp_checksum_complete(skb)) {
 		inet_twsk_put(inet_twsk(sk));
 		goto csum_error;
 	}
+\end{minted}
+	关于inet\_twsk\_put更多的内容，请参见\ref{INET:inet_twsk_put}。
+
+\begin{minted}[linenos]{c}
+	//根据返回值进行相应处理
 	switch (tcp_timewait_state_process(inet_twsk(sk), skb, th)) {
 		case TCP_TW_SYN: {
 			struct sock *sk2 = inet_lookup_listener(dev_net(skb->dev),
