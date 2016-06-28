@@ -340,59 +340,58 @@ Parameter:
 */
 bool tcp_prequeue(struct sock *sk, struct sk_buff *skb)
 {
-    struct tcp_sock *tp = tcp_sk(sk);
-    //如果开启了tcp_low_latency或者用户没有在读数据，直接返回
-    if (sysctl_tcp_low_latency || !tp->ucopy.task)
-        return false;
-    /*
-        数据包长度不大于tcp头部的长度，并且prequeue队列为空。
-    */
-    if (skb->len <= tcp_hdrlen(skb) &&
-        skb_queue_len(&tp->ucopy.prequeue) == 0)
-        return false;
+	struct tcp_sock *tp = tcp_sk(sk);
+	//如果开启了tcp_low_latency或者用户没有在读数据，直接返回
+	if (sysctl_tcp_low_latency || !tp->ucopy.task)
+		return false;
+	/*
+		数据包长度不大于tcp头部的长度，并且prequeue队列为空。
+	*/
+	if (skb->len <= tcp_hdrlen(skb) &&
+	    skb_queue_len(&tp->ucopy.prequeue) == 0)
+		return false;
 
-    /* Before escaping RCU protected region, we need to take care of skb
-     * dst. Prequeue is only enabled for established sockets.
-     * For such sockets, we might need the skb dst only to set sk->sk_rx_dst
-     * Instead of doing full sk_rx_dst validity here, let's perform
-     * an optimistic check.
-     */
-    if (likely(sk->sk_rx_dst))
-        skb_dst_drop(skb);
-    else
-        skb_dst_force_safe(skb);
-    /*
-        将接收到的段添加到prequeue队列中，并更新prequeue队列消耗的内存。
-    */
-    __skb_queue_tail(&tp->ucopy.prequeue, skb);
-    tp->ucopy.memory += skb->truesize;
-    /*
-        如果prequeue消耗的内存超过接收缓存上限，则
-        立刻处理prequeue队列上的段。
-    */
-    if (tp->ucopy.memory > sk->sk_rcvbuf) {
-        struct sk_buff *skb1;
+	/* Before escaping RCU protected region, we need to take care of skb
+	 * dst. Prequeue is only enabled for established sockets.
+	 * For such sockets, we might need the skb dst only to set sk->sk_rx_dst
+	 * Instead of doing full sk_rx_dst validity here, let's perform
+	 * an optimistic check.
+	 */
+	if (likely(sk->sk_rx_dst))
+		skb_dst_drop(skb);
+	else
+		skb_dst_force_safe(skb);
+	/*
+		将接收到的段添加到prequeue队列中，并更新prequeue队列消耗的内存。
+	*/
+	__skb_queue_tail(&tp->ucopy.prequeue, skb);
+	tp->ucopy.memory += skb->truesize;
+	/*
+		如果prequeue消耗的内存超过接收缓存上限，则
+		立刻处理prequeue队列上的段。
+	*/
+	if (tp->ucopy.memory > sk->sk_rcvbuf) {
+		struct sk_buff *skb1;
 
-        BUG_ON(sock_owned_by_user(sk));
+		BUG_ON(sock_owned_by_user(sk));
 
-        while ((skb1 = __skb_dequeue(&tp->ucopy.prequeue)) != NULL) {
-            sk_backlog_rcv(sk, skb1);
-            NET_INC_STATS_BH(sock_net(sk),
-                     LINUX_MIB_TCPPREQUEUEDROPPED);
-        }
+		while ((skb1 = __skb_dequeue(&tp->ucopy.prequeue)) != NULL) {
+			sk_backlog_rcv(sk, skb1);
+			NET_INC_STATS_BH(sock_net(sk),
+					 LINUX_MIB_TCPPREQUEUEDROPPED);
+		}
 
-        tp->ucopy.memory = 0;
-    } else if (skb_queue_len(&tp->ucopy.prequeue) == 1) {   //队列长度为1
-        wake_up_interruptible_sync_poll(sk_sleep(sk),
-                       POLLIN | POLLRDNORM | POLLRDBAND);
-        //不需要发送ack，则复位重新启动延迟确认定时器。
-        if (!inet_csk_ack_scheduled(sk))
-            inet_csk_reset_xmit_timer(sk, ICSK_TIME_DACK,
-                          (3 * tcp_rto_min(sk)) / 4,
-                          TCP_RTO_MAX);
-        ///？？？problem??page 931
-    }
-    return true;
+		tp->ucopy.memory = 0;
+	} else if (skb_queue_len(&tp->ucopy.prequeue) == 1) {	//队列长度为1
+		wake_up_interruptible_sync_poll(sk_sleep(sk),
+					   POLLIN | POLLRDNORM | POLLRDBAND);
+		//不需要发送ack，则复位重新启动延迟确认定时器。
+		if (!inet_csk_ack_scheduled(sk))
+			inet_csk_reset_xmit_timer(sk, ICSK_TIME_DACK,
+						  (3 * tcp_rto_min(sk)) / 4,
+						  TCP_RTO_MAX);
+	}
+	return true;
 }
 \end{minted}
         \subsection{自顶向下处理}
@@ -414,12 +413,12 @@ Function:
 
 Parameter:
 
-    sk:传输控制块。
-    msg:
-    len:
-    nonblock:
-    flags:读取数据的标志。
-    addrlen:
+	sk:传输控制块。
+	msg:
+	len:
+	nonblock:是否阻塞
+	flags:读取数据的标志。
+	addrlen:
 */
 
 int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
@@ -469,8 +468,38 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
     */
     if (flags & MSG_OOB)
         goto recv_urg;
+
 \end{minted}
     继续处理。
+\begin{minted}[linenos]{C}
+	//被修复了
+	if (unlikely(tp->repair)) {
+		//	Operation not permitted
+		err = -EPERM;
+		//如果只是查看数据的话，就直接跳转到out处理
+		if (!(flags & MSG_PEEK))
+			goto out;
+		//????
+		if (tp->repair_queue == TCP_SEND_QUEUE)
+			goto recv_sndq;
+		//Invalid argument
+		err = -EINVAL
+		if (tp->repair_queue == TCP_NO_QUEUE)
+			goto out;
+
+		/* 'common' recv queue MSG_PEEK-ing */
+	}
+\end{minted}
+	
+	接下来进行数据复制。在把数据从接收缓存复制到用户空间的过程中，
+	会更新当前已复制位置，以及段序号。如果接收数据，则会更新copied\_seq,
+	但是如果只是查看数据而并不是从系统缓冲区移走数据，那么不能更新copied\_seq。
+	因此，数据复制到用户空间的过程中，区别接收数据还是查看数据是根据是否更新copied\_seq，
+	所以这里时根据接收数据还是查看来获取要更新标记的地址，而后面的复制操作就完全不关心时接收
+	还是查看。
+	
+	最后一行调用相关函数根据是否设置了MSG\_WAITALL来确定本次调用需要接收数据的长度。如果设置
+	了MSG\_WAITALL标志，则读取数据长度为用户调用时输入的参数len。
 \begin{minted}[linenos]{C}
     //被修复了？？？啥意思》？》
     if (unlikely(tp->repair)) {
@@ -530,47 +559,47 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
 
     接下来首先获取一个缓存区。
 \begin{minted}[linenos]{C}
-        /* Next get a buffer. */
-        //接下来获取下一个要读取的的段。
-        last = skb_peek_tail(&sk->sk_receive_queue);
-        skb_queue_walk(&sk->sk_receive_queue, skb) {
-            last = skb;
-            /* Now that we have two receive queues this
-             * shouldn't happen.
-                如果接收队列中的段序号比较大，则说明也获取不到下一个待获取的段，
-                这样也只能接着处理prequeue或后备队列，实际上这种情况不应该发生。
-             */
-            if (WARN(before(*seq, TCP_SKB_CB(skb)->seq),
-                 "recvmsg bug: copied %X seq %X rcvnxt %X fl %X\n",
-                 *seq, TCP_SKB_CB(skb)->seq, tp->rcv_nxt,
-                 flags))
-                break;
-            /*
-                到此，我们已经获取了下一个要读取的数据段，计算该段开始读取数据的偏移位置，
-                当然，该偏移值必须在该段的数据长度范围内才有效。
-            */
-            offset = *seq - TCP_SKB_CB(skb)->seq;   
-            /*
-                由于SYN标志占用了一个序号，因此如果存在SYN标志，则需要调整
-                偏移。由于偏移offset为无符号整型，因此，不会出现负数的情况。
-            */
-            if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_SYN)
-                offset--;
-            /*
-                只有当偏移在该段的数据长度范围内，才说明待读的段才是有效的，因此，接下来
-                跳转到found_ok_skb标签处读取数据。
-            */
-            if (offset < skb->len)
-                goto found_ok_skb;
-            /*
-                如果接收到的段中有FIN标识，则跳转到found_fin_ok处处理。
-            */
-            if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN)
-                goto found_fin_ok;
-            WARN(!(flags & MSG_PEEK),
-                 "recvmsg bug 2: copied %X seq %X rcvnxt %X fl %X\n",
-                 *seq, TCP_SKB_CB(skb)->seq, tp->rcv_nxt, flags);
-        }
+		/* Next get a buffer. */
+		//获取下一个要读取的的段。
+		last = skb_peek_tail(&sk->sk_receive_queue);
+		skb_queue_walk(&sk->sk_receive_queue, skb) {
+			last = skb;
+			/* Now that we have two receive queues this
+			 * shouldn't happen.
+				如果接收队列中的段序号比较大，则说明也获取不到下一个待获取的段，
+				这样也只能接着处理prequeue或后备队列，实际上这种情况不应该发生。
+			 */
+			if (WARN(before(*seq, TCP_SKB_CB(skb)->seq),
+				 "recvmsg bug: copied %X seq %X rcvnxt %X fl %X\n",
+				 *seq, TCP_SKB_CB(skb)->seq, tp->rcv_nxt,
+				 flags))
+				break;
+			/*
+				到此，我们已经获取了下一个要读取的数据段，计算该段开始读取数据的偏移位置，
+				当然，该偏移值必须在该段的数据长度范围内才有效。
+			*/
+			offset = *seq - TCP_SKB_CB(skb)->seq;	
+			/*
+				由于SYN标志占用了一个序号，因此如果存在SYN标志，则需要调整
+				偏移。由于偏移offset为无符号整型，因此，不会出现负数的情况。
+			*/
+			if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_SYN)
+				offset--;
+			/*
+				只有当偏移在该段的数据长度范围内，才说明待读的段才是有效的，因此，接下来
+				跳转到found_ok_skb标签处读取数据。
+			*/
+			if (offset < skb->len)
+				goto found_ok_skb;
+			/*
+				如果接收到的段中有FIN标识，则跳转到found_fin_ok处处理。
+			*/
+			if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_FIN)
+				goto found_fin_ok;
+			WARN(!(flags & MSG_PEEK),
+			     "recvmsg bug 2: copied %X seq %X rcvnxt %X fl %X\n",
+			     *seq, TCP_SKB_CB(skb)->seq, tp->rcv_nxt, flags);
+		}
 \end{minted}
 
     只有在读取完数据后，才能在后备队列不为空的情况下区处理接收到后备队列中的TCP段。
@@ -578,6 +607,7 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
 
     由于是因为用户进程对传输控制块进行的锁定，将TCP段缓存到后备队列，故而，一旦用户进程释放传输控制块就应该立即处理后备队列。
     处理后备队列直接在release\_sock中实现，以确保在任何时候解锁传输控制块时能立即处理后备队列。
+
 \begin{minted}[linenos]{C}
         /* Well, if we have backlog, try to process it now yet. */
 
@@ -585,9 +615,10 @@ int tcp_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int nonblock,
             break;
 \end{minted}
 
-    当接收队列中可以读取的段已经读完，在处理prequeue或后备队列之前，我们需要显检查是否会存在一些
-    异常的情况，如果存在这类情况，就需要结束这次读取，返回前当然还顺便检测后备队列是否存在数据，如果有
-    则还需要处理。  
+	当接收队列中可以读取的段已经读完，在处理prequeue或后备队列之前，我们需要先检查是否会存在一些
+	异常的情况。如果存在这类情况，就需要结束这次读取，返回前当然还顺便检测后备队列是否存在数据，如果有
+	则还需要处理。
+
 \begin{minted}[linenos]{C}
         if (copied) {
             /*
