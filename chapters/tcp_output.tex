@@ -312,7 +312,266 @@ static int tcp_sendmsg_fastopen(struct sock *sk, struct msghdr *msg,
 \end{minted}
 在连接结束后，释放Fast Open请求信息结构体，完成了Fast Open过程。
 
+\subsection{TCP Push操作}
+TCP协议提供了PUSH功能，只要添加了该标志位，TCP层会尽快地将数据发送出去。以往多用于
+传输程序的控制命令。在目前的多数TCP实现中，用户往往不会自行指定PUSH。TCP的实现会
+根据情况自行指定PUSH位。
+\subsubsection{\mintinline{c}{forced_push}}
+既然目前的TCP实现多数都会自行指定PUSH标志位，那么究竟在什么情况下，数据包会被设置PUSH
+标志位呢？\mintinline{c}{forced_push}函数给出了必须设置PUSH标志位的一种情况。
+\begin{minted}[linenos]{c}
+static inline bool forced_push(const struct tcp_sock *tp)
+{
+        /* 当上一次被PUSH出去的包的序号和当前的序号
+         * 相差超过窗口的一半时，会强行被PUSH。
+         */
+        return after(tp->write_seq, tp->pushed_seq + (tp->max_window >> 1));
+}
+\end{minted}
+从这里可以看出，在Linux中，如果缓存的数据量超过了窗口大小的一半以上，就会被尽快发送出去。
+
+\subsubsection{\mintinline{c}{tcp_mark_push}}
+\mintinline{c}{tcp_mark_push}函数用于标记一个数据包的PUSH位。
+\begin{minted}[linenos]{c}
+static inline void tcp_mark_push(struct tcp_sock *tp, struct sk_buff *skb)
+{
+        TCP_SKB_CB(skb)->tcp_flags |= TCPHDR_PSH;
+        tp->pushed_seq = tp->write_seq;
+}
+\end{minted}
+
+\subsubsection{\mintinline{c}{tcp_push}}
+\mintinline{c}{tcp_push}函数用于发送处于队列中的包。
+\begin{minted}[linenos]{c}
+static void tcp_push(struct sock *sk, int flags, int mss_now,
+                     int nonagle, int size_goal)
+{
+        struct tcp_sock *tp = tcp_sk(sk);
+        struct sk_buff *skb;
+
+        /* 如果已经没有可以发送的包了，直接返回。 */
+        if (!tcp_send_head(sk))
+                return;
+
+        /* 取出队尾的数据包，如果没有更多的数据片段或者
+         * 满足了forced_push的条件，那么，就将该包标记上PUSH。 
+         */
+        skb = tcp_write_queue_tail(sk);
+        if (!(flags & MSG_MORE) || forced_push(tp))
+                tcp_mark_push(tp, skb);
+
+        tcp_mark_urg(tp, flags);
+
+        if (tcp_should_autocork(sk, skb, size_goal)) {
+
+                /* avoid atomic op if TSQ_THROTTLED bit is already set */
+                if (!test_bit(TSQ_THROTTLED, &tp->tsq_flags)) {
+                        NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPAUTOCORKING);
+                        set_bit(TSQ_THROTTLED, &tp->tsq_flags);
+                }
+                /* It is possible TX completion already happened
+                 * before we set TSQ_THROTTLED.
+                 */
+                if (atomic_read(&sk->sk_wmem_alloc) > skb->truesize)
+                        return;
+        }
+
+        if (flags & MSG_MORE)
+                nonagle = TCP_NAGLE_CORK;
+
+        /* 将数据包发送出去 */
+        __tcp_push_pending_frames(sk, mss_now, nonagle);
+}
+\end{minted}
+
+\subsubsection{\mintinline{c}{tcp_push_one}}
+该函数用于将发送队列首部的单个包发送出去。
+\begin{minted}[linenos]{c}
+void tcp_push_one(struct sock *sk, unsigned int mss_now)
+{
+        struct sk_buff *skb = tcp_send_head(sk);
+
+        BUG_ON(!skb || skb->len < mss_now);
+
+        tcp_write_xmit(sk, mss_now, TCP_NAGLE_PUSH, 1, sk->sk_allocation);
+}
+\end{minted}
+
+\subsubsection{\mintinline{c}{__tcp_push_pending_frames}}
+\begin{minted}[linenos]{c}
+/* 将等待在队列中的包全部发出。 */
+void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
+                               int nonagle)
+{
+        /* 如果此时连接已经关闭了，那么直接返回。*/
+        if (unlikely(sk->sk_state == TCP_CLOSE))
+                return;
+
+        /* 将剩余的部分发送出去。 */
+        if (tcp_write_xmit(sk, cur_mss, nonagle, 0,
+                           sk_gfp_atomic(sk, GFP_ATOMIC)))
+                tcp_check_probe_timer(sk);
+}
+\end{minted}
+
 \section{输出到IP层}
+
+\subsection{\mintinline{c}{tcp_write_xmit}}
+在上面的很多代码中，都最终调用了\mintinline{c}{tcp_write_xmit}来完成发送功能。
+\begin{minted}[linenos]{c}
+/* Location: net/ipv4/tcp_output.c
+ *
+ * Parameter:
+ *     sk:套接字
+ *     mss_now:当前有效的MSS大小
+ *     nonagle:是否启用Nagle算法。
+ *     push_one:当push_one大于0时，最多发送一个包
+ */
+static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
+                           int push_one, gfp_t gfp)
+{
+        struct tcp_sock *tp = tcp_sk(sk);
+        struct sk_buff *skb;
+        unsigned int tso_segs, sent_pkts;
+        int cwnd_quota;
+        int result;
+        bool is_cwnd_limited = false;
+        u32 max_segs;
+
+        /* 该变量用于统计发送的包的数量，初始化为0 */
+        sent_pkts = 0;
+
+        if (!push_one) {
+                /* 进行MTU探测 */
+                result = tcp_mtu_probe(sk);
+                if (!result) {
+                        return false;
+                } else if (result > 0) {
+                        sent_pkts = 1;
+                }
+        }
+
+        /* 获取最大的段数 */
+        max_segs = tcp_tso_autosize(sk, mss_now);
+        /* 不断循环发送队列，进行发送 */
+        while ((skb = tcp_send_head(sk))) {
+                unsigned int limit;
+
+                /* 获取TSO的信息 */
+                tso_segs = tcp_init_tso_segs(skb, mss_now);
+                BUG_ON(!tso_segs);
+
+                if (unlikely(tp->repair) && tp->repair_queue == TCP_SEND_QUEUE) {
+                        /* "skb_mstamp" is used as a start point for the retransmit timer */
+                        skb_mstamp_get(&skb->skb_mstamp);
+                        goto repair; /* Skip network transmission */
+                }
+
+                /* 获取CWND的剩余大小 */
+                cwnd_quota = tcp_cwnd_test(tp, skb);
+                if (!cwnd_quota) {
+                        if (push_one == 2)
+                                /* 强制发送一个包进行丢包探测。 */
+                                cwnd_quota = 1;
+                        else
+                                /* 如果窗口大小为0，则无法发送任何东西。 */
+                                break;
+                }
+
+                /* 如果当前段不完全在发送窗口内，则无法发送 */
+                if (unlikely(!tcp_snd_wnd_test(tp, skb, mss_now)))
+                        break;
+
+                if (tso_segs == 1) {
+                        /* 如果无需TSO分段，则检测是否启用Nagle算法。 */
+                        if (unlikely(!tcp_nagle_test(tp, skb, mss_now,
+                                                     (tcp_skb_is_last(sk, skb) ?
+                                                      nonagle : TCP_NAGLE_PUSH))))
+                                break;
+                } else {
+                        /* 如果需要TSO分段，则检查是否需要延迟发送。 */
+                        if (!push_one &&
+                            tcp_tso_should_defer(sk, skb, &is_cwnd_limited,
+                                                 max_segs))
+                                break;
+                }
+
+                /* 根据分段对于包进行分段处理。 */
+                limit = mss_now;
+                if (tso_segs > 1 && !tcp_urg_mode(tp))
+                        limit = tcp_mss_split_point(sk, skb, mss_now,
+                                                    min_t(unsigned int,
+                                                          cwnd_quota,
+                                                          max_segs),
+                                                    nonagle);
+
+                /* 如果长度超过了分段限制，那么调用tso_fragment进行分段。 */
+                if (skb->len > limit &&
+                    unlikely(tso_fragment(sk, skb, limit, mss_now, gfp)))
+                        break;
+\end{minted}
+后面是Linux3.6引入的新机制。在之前的Linux实现中，如果TCP的窗口很大，那么，可能导致
+驱动队列中待发送的包的的数目超过队列缓存的大小，因而导致丢包。为了解决该问题，Linux
+引入了TCP小队列机制。
+\begin{minted}[linenos]{c}
+                /* TCP Small Queues :
+                 * 控制进入到qdisc/devices中的包的数目。
+                 * 该机制带来了以下的好处 :
+                 *  - 更好的RTT估算和ACK调度
+                 *  - 更快地恢复
+                 *  - 高数据率
+                 * Alas, some drivers / subsystems require a fair amount
+                 * of queued bytes to ensure line rate.
+                 * One example is wifi aggregation (802.11 AMPDU)
+                 */
+                limit = max(2 * skb->truesize, sk->sk_pacing_rate >> 10);
+                limit = min_t(u32, limit, sysctl_tcp_limit_output_bytes);
+
+                if (atomic_read(&sk->sk_wmem_alloc) > limit) {
+                        set_bit(TSQ_THROTTLED, &tp->tsq_flags);
+                        /* It is possible TX completion already happened
+                         * before we set TSQ_THROTTLED, so we must
+                         * test again the condition.
+                         */
+                        smp_mb__after_atomic();
+                        if (atomic_read(&sk->sk_wmem_alloc) > limit)
+                                break;
+                }
+
+                /* 调用tcp_transmit_skb将包真正发送出去 */
+                if (unlikely(tcp_transmit_skb(sk, skb, 1, gfp)))
+                        break;
+
+repair:
+                /* Advance the send_head.  This one is sent out.
+                 * This call will increment packets_out.
+                 */
+                tcp_event_new_data_sent(sk, skb);
+
+                /* 如果发送的段小于MSS，则更新最后一个小包的序号 */
+                tcp_minshall_update(tp, mss_now, skb);
+                sent_pkts += tcp_skb_pcount(skb);
+
+                if (push_one)
+                        break;
+        }
+
+        /* 如果发送了数据，那么就更新相关的统计。 */
+        if (likely(sent_pkts)) {
+                if (tcp_in_cwnd_reduction(sk))
+                        tp->prr_out += sent_pkts;
+
+                /* Send one loss probe per tail loss episode. */
+                if (push_one != 2)
+                        tcp_schedule_loss_probe(sk);
+                is_cwnd_limited |= (tcp_packets_in_flight(tp) >= tp->snd_cwnd);
+                tcp_cwnd_validate(sk, is_cwnd_limited);
+                return false;
+        }
+        return !tp->packets_out && tcp_send_head(sk);
+}
+\end{minted}
+
 \subsection{tcp\_transmit\_skb}
 真正的发送操作是在\mintinline{c}{tcp_transmit_skb}中完成的。该函数最主要的工作是
 构建TCP的首部，并将包交付给IP层。由于数据报需要等到ACK后才能释放，
@@ -482,11 +741,10 @@ skb_shinfo(skb)->gso_type = sk->sk_gso_type;
 }
 \end{minted}
 
-\section{tcp\_select\_window(struct sk\_buff *skb)}
+\subsection{tcp\_select\_window(struct sk\_buff *skb)}
 这个函数的作用是选择一个新的窗口大小以用于更新\mintinline{c}{tcp_sock}。
 返回的结果根据RFC1323（详见\ref{subsec:rfc1323}）进行了缩放。
 
-\subsection{代码分析}
 \begin{minted}[linenos]{c}
 static u16 tcp_select_window(struct sock *sk)
 {
