@@ -535,7 +535,8 @@ static int tcp_v4_send_synack(const struct sock *sk, struct dst_entry *dst,
     return err;
 }
 \end{minted}
-                \mintinline{C}{net_xmit_eval}是什么,待考虑。
+                \mintinline{C}{net_xmit_eval}用于过滤错误码中的拥塞提示错误，换句
+话说，就是如果错误是由于拥塞造成的，那么就忽略掉，否则就返回错误码。
             \subsubsection{\mintinline{C}{tcp_make_synack}}
                 \label{ServerSendSYN+ACK:tcp_make_synack}
 
@@ -607,7 +608,8 @@ struct sk_buff *tcp_make_synack(const struct sock *sk, struct dst_entry *dst,
     skb_dst_set(skb, dst);
 \end{minted}
 
-    根据\mintinline{C}{attach_req}来判断该执行如何执行相关操作\textbf{to do in the future}。然后设置发送缓存的目的路由\textbf{a little confused, why need this}。
+    根据\mintinline{C}{attach_req}来判断该执行如何执行相关操作。然后设置发送缓存的
+目的路由。%TODO: what is attach_req means?
 
 \begin{minted}[linenos]{C}
     mss = dst_metric_advmss(dst);
@@ -628,7 +630,7 @@ struct sk_buff *tcp_make_synack(const struct sock *sk, struct dst_entry *dst,
     skb_mstamp_get(&skb->skb_mstamp);
 \end{minted}
 
-    清除选项，并且设置相关时间戳\textbf{to add in future}。
+    清除选项，并且设置相关时间戳。
 
 \begin{minted}[linenos]{C}
 #ifdef CONFIG_TCP_MD5SIG
@@ -699,7 +701,7 @@ struct sk_buff *tcp_make_synack(const struct sock *sk, struct dst_entry *dst,
 }
 \end{minted}
 
-    最后判断是否需要md5哈希值，如果需要的话，就进行添加。\textbf{what does it mean in the middle?},然后返回生成包含SYN+ACK段的skb。     
+    最后判断是否需要md5哈希值，如果需要的话，就进行添加。最后返回生成包含SYN+ACK段的skb。  
 
         \subsection{第三次握手：接收ACK段}
 

@@ -1806,13 +1806,14 @@ static bool tcp_limit_reno_sacked(struct tcp_sock *tp)
     }
     return false;
 }
+\end{minted}
 
      该函数用于检查sacked\_out是否过多，过多则限制，且返回true，说明出现reordering了。
 
     那么我们怎么判断是否有reordering呢？ 我们知道dupack可能由lost引起，也有可能由reorder引起，那么如果 
     sacked\_out + lost\_out > packets\_out，则说明sacked\_out偏大了，因为它错误的把由reorder 
     引起的dupack当客户端的sack了。
-\end{minted}
+
         \subsubsection{\mintinline{C}{tcp_check_reno_reordering}}
 \begin{minted}[linenos]{C}
 /* 
@@ -2910,7 +2911,8 @@ Location
 #define SHUTDOWN_MASK   3
 #define RCV_SHUTDOWN    1
 #define SEND_SHUTDOWN   2
-\end{mimted}
+\end{minted}
+
         \subsubsection{TCP State}
 \begin{minted}[linenos]{C}
 /*include/net/tcp_state.c*/

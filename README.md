@@ -11,6 +11,7 @@ TCP协议是目前网络协议栈中最重要的内容之一。出于个人兴�
 ## 目录结构 ##
 ```text
 tcp.pdf					每次commit生成的最新版本的分析文档。
+tcp.tex					TCP分析文档主文件
 chapters/				每一章节的内容
     prepare.tex				准备知识（RFC等）
     network_data_structure.tex		网络子系统相关核心数据结构
