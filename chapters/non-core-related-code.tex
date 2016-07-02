@@ -3,7 +3,7 @@
 \minitoc
 
     \section{BSD Socket层}
-        \subsection{\mintinline{C}{msg_flag}}
+        \subsection{\mintinline{c}{msg_flag}}
 \begin{enumerate}
 \item[MSG\_OOB]         接收或发送带外数据。
 \item[MSG\_PEEK]        查看数据，并不从系统缓存区移走数据。
@@ -22,7 +22,7 @@
 \item[MSG\_CMSG\_COMPAT]64位兼容32位处理方式。
 \end{enumerate}
         \subsection{数据报类型}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -81,7 +81,7 @@ Description:
 \end{minted}    
         \subsection{Sock CheckSum}
             \subsubsection{CheckSum相关标志位}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 * A. Checksumming of received packets by device.
  *
  * CHECKSUM_NONE:
@@ -181,8 +181,8 @@ Description:
 #define CHECKSUM_COMPLETE   2
 #define CHECKSUM_PARTIAL    3
 \end{minted}
-            \subsubsection{\mintinline{C}{skb_csum_unnecessary}}
-\begin{minted}[linenos]{C}
+            \subsubsection{\mintinline{c}{skb_csum_unnecessary}}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -202,8 +202,8 @@ static inline int skb_csum_unnecessary(const struct sk_buff *skb)
 \end{minted}
             如果不想要网卡帮忙校验或者Checksum合法，或者硬件给出的时部分校验并且校验的偏移必须大于零。
             则返回1,否则，返回0。
-            \subsubsection{\mintinline{C}{__skb_checksum_complete}}
-\begin{minted}[linenos]{C}
+            \subsubsection{\mintinline{c}{__skb_checksum_complete}}
+\begin{minted}[linenos]{c}
 __sum16 __skb_checksum_complete(struct sk_buff *skb)
 {
     __wsum csum;
@@ -275,7 +275,7 @@ int sk_stream_wait_connect(struct sock *sk, long *timeo_p)
 }
 \end{minted}
 
-    \subsection{\mintinline{C}{pskb_may_pull}}
+    \subsection{\mintinline{c}{pskb_may_pull}}
         \label{BSD:pskb_may_pull}
         我们首先需要直到的是收到的包的数据在sk\_buff中是如何组织的。
         数据先会出现在sk\_buff->data中，也就是线性数据缓冲区，多余的数据就放在skb\_shinfo(skb)->frag[]当中，
@@ -289,7 +289,7 @@ int sk_stream_wait_connect(struct sock *sk, long *timeo_p)
         如果给定长度大于第一个分片的全部长度，显然不合法，
         如果都不是，那么就需要调用\_\_pskb\_pull\_tail处理剩下的分片了，
         这里我们就不详细叙述了。
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -428,10 +428,10 @@ sock_error:
 }
 \end{minted}
     
-\subsection{\mintinline{C}{inet_hash_connect && __inet_hash_connect}}
+\subsection{\mintinline{c}{inet_hash_connect && __inet_hash_connect}}
 
-\subsubsection{\mintinline{C}{inet_hash_connect}}
-\begin{minted}[linenos]{C}
+\subsubsection{\mintinline{c}{inet_hash_connect}}
+\begin{minted}[linenos]{c}
 /*
  * Bind a port for a connect operation and hash it.
  */
@@ -447,8 +447,8 @@ int inet_hash_connect(struct inet_timewait_death_row *death_row,
 }
 \end{minted}
 
-        \subsubsection{\mintinline{C}{__inet_hash_connect}}     
-\begin{minted}[linenos]{C}
+        \subsubsection{\mintinline{c}{__inet_hash_connect}}     
+\begin{minted}[linenos]{c}
 int __inet_hash_connect(struct inet_timewait_death_row *death_row,
         struct sock *sk, u32 port_offset,
         int (*check_established)(struct inet_timewait_death_row *,
@@ -557,9 +557,9 @@ out:
     }
 }
 \end{minted}
-    \subsection{\mintinline{C}{inet_csk_reqsk_queue_add}}
+    \subsection{\mintinline{c}{inet_csk_reqsk_queue_add}}
         \label{INET:inet_csk_reqsk_queue_add}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -596,9 +596,9 @@ struct sock *inet_csk_reqsk_queue_add(struct sock *sk,
                 \item[1]        \ref{Server:tcp_conn_request}中的tcp\_conn\_request调用。
             \end{enumerate}
 
-        \subsubsection{\mintinline{C}{inet_csk_reqsk_queue_hash_add}}
+        \subsubsection{\mintinline{c}{inet_csk_reqsk_queue_hash_add}}
             \label{INET:inet_csk_reqsk_queue_hash_add}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 void inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
                    unsigned long timeout)
 {
@@ -789,7 +789,7 @@ max: 用于TCP socket发送缓冲的内存最大值。该值不会影响net.core
 \end{enumerate}
     \subsection{TCP 标志宏}
         \label{TCPFlag}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 #define FLAG_DATA       0x01        /* Incoming frame contained data.       */
 #define FLAG_WIN_UPDATE     0x02    /* Incoming ACK was a window update.    */
 #define FLAG_DATA_ACKED     0x04    /* This ACK acknowledged new data.      */
@@ -846,7 +846,7 @@ max: 用于TCP socket发送缓冲的内存最大值。该值不会影响net.core
                 \item[1]        \ref{CongestionState:Loss}的tcp\_enter\_loss中调用。
             \end{enumerate}
     \subsection{函数宏}
-        \subsubsection{\mintinline{C}{before & after}}
+        \subsubsection{\mintinline{c}{before & after}}
             在一些需要判断序号前后的地方出现了\mintinline{c}{before()}和\mintinline{c}{after()}
             这两个函数。这两个函数的定义如下
 \begin{minted}[linenos]{c}
@@ -863,7 +863,7 @@ static inline bool before(__u32 seq1, __u32 seq2)
         造成影响。序号都是32位无符号整型。
         \subsubsection{between}
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* is s2<=s1<=s3 ? */
 static inline bool between(__u32 seq1, __u32 seq2, __u32 seq3)
 {
@@ -872,11 +872,11 @@ static inline bool between(__u32 seq1, __u32 seq2, __u32 seq3)
 \end{minted}
 
 \section{TCP CheckSum}
-    \subsection{\mintinline{C}{tcp_checksum_complete}}
+    \subsection{\mintinline{c}{tcp_checksum_complete}}
             \label{TCPCheckSum:tcp_checksum_complete}
             该函数时基于伪首部累加和，完成全包校验和的检测，值得注意的是，该函数用于
             校验没有负载的TCP段。如果需要校验，并且校验成功，则返回1。
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
     include/net/tcp.h
@@ -887,8 +887,8 @@ static inline bool tcp_checksum_complete(struct sk_buff *skb)
         __tcp_checksum_complete(skb);
 }
 \end{minted}
-            对于\mintinline{C}{__tcp_checksum_complete}函数，如下：
-\begin{minted}[linenos]{C}
+            对于\mintinline{c}{__tcp_checksum_complete}函数，如下：
+\begin{minted}[linenos]{c}
 /*
 Location:
     include/net/tcp.h
@@ -898,7 +898,7 @@ static inline __sum16 __tcp_checksum_complete(struct sk_buff *skb)
     return __skb_checksum_complete(skb);
 }
 \end{minted}
-            对于函数\mintinline{C}{__skb_checksum_complete},参见BSD Socket处的叙述。
+            对于函数\mintinline{c}{__skb_checksum_complete},参见BSD Socket处的叙述。
 
             \textcolor{blue}{调用位置}:
 
@@ -906,8 +906,8 @@ static inline __sum16 __tcp_checksum_complete(struct sk_buff *skb)
                     \item[1]        \ref{ServerReceiveSYN:tcp_v4_do_rcv}中的tcp\_v4\_do\_rcv调用。
                 \end{enumerate}
             
-    \subsection{\mintinline{C}{tcp_v4_checksum_init}}
-\begin{minted}[linenos]{C}
+    \subsection{\mintinline{c}{tcp_v4_checksum_init}}
+\begin{minted}[linenos]{c}
 /*没找到。。*/
 \end{minted}
 
@@ -915,7 +915,7 @@ static inline __sum16 __tcp_checksum_complete(struct sk_buff *skb)
     \subsection{TCP Initialize Handle}
         \subsubsection{tcp\_connnect\_init}
             \label{TCPInitialize:tcp_connect_init}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* Do all connect socket setups that can be done AF independent. */
 static void tcp_connect_init(struct sock *sk)
 {
@@ -1040,10 +1040,10 @@ static void tcp_init_nondata_skb(struct sk_buff *skb, u32 seq, u8 flags)
                 \item[2]        \ref{Client:tcp_send_ack}中的tcp\_send\_ack调用。
             \end{enumerate}
 
-\section{\mintinline{C}{TCP Options}}
+\section{\mintinline{c}{TCP Options}}
         \subsubsection{TCP Options Flags}
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location
 
@@ -1082,9 +1082,9 @@ Description:
 \end{minted}
 
     \subsection{TCP Options Handle}        
-        \subsubsection{\mintinline{C}{tcp_parse_fastopen_option}}
+        \subsubsection{\mintinline{c}{tcp_parse_fastopen_option}}
             \label{TCPOptions:tcp_parse_fastopen_option}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -1124,10 +1124,10 @@ static void tcp_parse_fastopen_option(int len, const unsigned char *cookie,
             %\begin{enumerate}
                 %\item[1]       \ref{SYN+ACK:tcp_rcv_synsent_state_process}的tcp\_rcv\_synsent\_state\_process中调用。
             %\end{enumerate}
-        \subsubsection{\mintinline{C}{tcp_parse_options}}
+        \subsubsection{\mintinline{c}{tcp_parse_options}}
             \label{TCPOptions:tcp_parse_options}
                 关于TCP Options的格式，如果不清楚的话，可以参考\ref{RFC793TCPHeader:tcp_header_format}中的介绍。
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -1300,9 +1300,9 @@ while (length > 0) {
             \begin{enumerate}
                 \item[1]        \ref{SYN+ACK:tcp_rcv_synsent_state_process}的tcp\_rcv\_synsent\_state\_process中调用。
             \end{enumerate}
-        \subsubsection{\mintinline{C}{tcp_clear_options}}
+        \subsubsection{\mintinline{c}{tcp_clear_options}}
             \label{TCPOptions:tcp_clear_options}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -1460,7 +1460,7 @@ static unsigned int tcp_established_options(struct sock *sk, struct sk_buff *skb
 
 \section{TCP PAWS}
     \subsection{TCP PAWS Flags}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location
 
@@ -1479,9 +1479,9 @@ Location
                                 */
 \end{minted}
 
-    \subsection{\mintinline{C}{tcp_paws_check}}
+    \subsection{\mintinline{c}{tcp_paws_check}}
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -1514,9 +1514,9 @@ static inline bool tcp_paws_check(const struct tcp_options_received *rx_opt,
     return false;
 }
 \end{minted}
-    \subsection{\mintinline{C}{tcp_paws_reject}}
+    \subsection{\mintinline{c}{tcp_paws_reject}}
         \label{TCPPAWS:tcp_paws_reject}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -1565,8 +1565,8 @@ static inline bool tcp_paws_reject(const struct tcp_options_received *rx_opt,
             \end{enumerate}
         
 \section{TCP TimeStamp}
-    \subsection{\mintinline{C}{tcp_store_ts_recent}}
-\begin{minted}[linenos]{C}
+    \subsection{\mintinline{c}{tcp_store_ts_recent}}
+\begin{minted}[linenos]{c}
 /*
 Location
 
@@ -1588,9 +1588,9 @@ static void tcp_store_ts_recent(struct tcp_sock *tp)
     tp->rx_opt.ts_recent_stamp = get_seconds();
 }
 \end{minted}
-    \subsection{\mintinline{C}{tcp_replace_ts_recent}}
+    \subsection{\mintinline{c}{tcp_replace_ts_recent}}
         \label{TCPTimestamp:tcp_replace_ts_recent}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location
 
@@ -1640,9 +1640,9 @@ static void tcp_replace_ts_recent(struct tcp_sock *tp, u32 seq)
 \end{enumerate}
 
     \subsection{ACK Check}
-        \subsubsection{\mintinline{C}{tcp_is_sack & tcp_is_reno & tcp_is_fack}}
+        \subsubsection{\mintinline{c}{tcp_is_sack & tcp_is_reno & tcp_is_fack}}
             \label{ACKCheck:IsSACK,IsReno,IsFack}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -1681,7 +1681,7 @@ static inline bool tcp_is_fack(const struct tcp_sock *tp)
 
         \subsubsection{\mintinline{c}{tcp_ack_is_dubious}}
             \label{ACKCheck:tcp_ack_is_dubious}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -1720,7 +1720,7 @@ static inline bool tcp_ack_is_dubious(const struct sock *sk, const int flag)
                 \item[1]        \label{ClientReceiveSYN+ACK:tcp_ack}的tcp\_ack中调用。
             \end{enumerate}
 
-        \subsubsection{\mintinline{C}{tcp_check_sack_reneging}}
+        \subsubsection{\mintinline{c}{tcp_check_sack_reneging}}
             \label{TCPACKCheck:tcp_check_sack_reneging}
             如果接收到的确认ACK指向之前记录的SACK，这说明之前记录的SACK并没有反映接收方的真实状态。
             接收路径上很有可能已经有拥塞发生或者接收主机正在经历严重的拥塞甚至处理出现了BUG，
@@ -1731,7 +1731,7 @@ static inline bool tcp_ack_is_dubious(const struct sock *sk, const int flag)
             以便于让他可以给我们更多的ACK，从而可以使得SACK的记分板变得正常一点。如果这个表面上的违约一直持续到重传时间结束，
             我们就把SACK的记分板清除掉。
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -1776,8 +1776,8 @@ static bool tcp_check_sack_reneging(struct sock *sk, int flag)
                 \item[1]        \label{CongestionDeal:tcp_fastretrans_alert}中的tcp\_fastretrans\_alert调用。
             \end{enumerate}
         
-        \subsubsection{\mintinline{C}{tcp_limit_reno_sacked}}
-\begin{minted}[linenos]{C}
+        \subsubsection{\mintinline{c}{tcp_limit_reno_sacked}}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -1814,8 +1814,8 @@ static bool tcp_limit_reno_sacked(struct tcp_sock *tp)
     sacked\_out + lost\_out > packets\_out，则说明sacked\_out偏大了，因为它错误的把由reorder 
     引起的dupack当客户端的sack了。
 
-        \subsubsection{\mintinline{C}{tcp_check_reno_reordering}}
-\begin{minted}[linenos]{C}
+        \subsubsection{\mintinline{c}{tcp_check_reno_reordering}}
+\begin{minted}[linenos]{c}
 /* 
 Location:
     
@@ -1841,9 +1841,9 @@ static void tcp_check_reno_reordering(struct sock *sk, const int addend)
 }
 \end{minted}
     \subsection{ACK Update}
-        \subsubsection{\mintinline{C}{tcp_snd_una_update}}
+        \subsubsection{\mintinline{c}{tcp_snd_una_update}}
             \label{ACKUpdate:tcp_snd_una_update}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -1876,9 +1876,9 @@ static void tcp_snd_una_update(struct tcp_sock *tp, u32 ack)
                 \item[1]        \label{ClientReceiveSYN+ACK:tcp_ack}的tcp\_ack中调用。
             \end{enumerate}
 
-        \subsubsection{\mintinline{C}{tcp_reset_reno_sack}}
+        \subsubsection{\mintinline{c}{tcp_reset_reno_sack}}
             \label{ACKUpdate:tcp_reset_reno_sack}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -1904,9 +1904,9 @@ static inline void tcp_reset_reno_sack(struct tcp_sock *tp)
                 \item[1]        \ref{CongestionState:Loss}的tcp\_enter\_loss中调用。
             \end{enumerate}
 
-        \subsubsection{\mintinline{C}{tcp_add_reno_sack}}
+        \subsubsection{\mintinline{c}{tcp_add_reno_sack}}
             \label{ACKUpdate:tcp_add_reno_sack}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -1937,20 +1937,20 @@ static void tcp_add_reno_sack(struct sock *sk)
 
 \section{TCP Window}
     \subsection{Window Compute}
-        \subsubsection{\mintinline{C}{tcp_left_out}}
+        \subsubsection{\mintinline{c}{tcp_left_out}}
             该函数用于计算已经发出去的TCP段(离开主机)中一共有多少个tcp段还未得到确认。
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 static inline unsigned int tcp_left_out(const struct tcp_sock *tp)
 {
     return tp->sacked_out + tp->lost_out;
 }
 \end{minted}
-        \subsubsection{\mintinline{C}{tcp_verify_left_out}}
+        \subsubsection{\mintinline{c}{tcp_verify_left_out}}
             \label{WindowCompute:tcp_verify_left_out}
             该函数的功能主要是判断left\_out是否大于packets\_out,当然，这是不可能的，因为
             前者是已经发送离开主机的未被确认的段数，而后者是已经离开发送队列(不一定离开主机)
             但未确认的段数。故而，这里有一个WARN\_ON，以便输出相应的警告信息。
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -1974,9 +1974,9 @@ Parameter:
                 \item[2]        \label{CongestionDeal:tcp_fastretrans_alert}中的tcp\_fastretrans\_alert调用。
             \end{enumerate}
     \subsection{Window Update}
-        \subsubsection{\mintinline{C}{tcp_may_update_window}}
+        \subsubsection{\mintinline{c}{tcp_may_update_window}}
             \label{WindowUpdate:tcp_may_update_window}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -2009,9 +2009,9 @@ static inline bool tcp_may_update_window(const struct tcp_sock *tp,
         (ack_seq == tp->snd_wl1 && nwin > tp->snd_wnd);
 }
 \end{minted}
-        \subsubsection{\mintinline{C}{tcp_ack_update_window}}
+        \subsubsection{\mintinline{c}{tcp_ack_update_window}}
             \label{WindowUpdate:tcp_ack_update_window}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -2082,7 +2082,7 @@ static int tcp_ack_update_window(struct sock *sk, const struct sk_buff *skb, u32
 
 \section{TCP Urgent Data}
         \subsection{相应标识}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -2093,10 +2093,10 @@ Location:
 #define TCP_URG_READ    0x0400
 \end{minted}
         \subsection{TCP Urgent Check}
-            \subsubsection{\mintinline{C}{tcp_check_urg}}
+            \subsubsection{\mintinline{c}{tcp_check_urg}}
                 \label{TCPUrgent:tcp_check_urg}
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -2211,9 +2211,9 @@ static void tcp_check_urg(struct sock *sk, const struct tcphdr *th)
 }
 \end{minted}
     \subsection{TCP Urgent Deal}
-        \subsubsection{\mintinline{C}{tcp_urg}}
+        \subsubsection{\mintinline{c}{tcp_urg}}
             \label{TCPUrgent:tcp_urg}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -2271,16 +2271,16 @@ static void tcp_urg(struct sock *sk, struct sk_buff *skb, const struct tcphdr *t
 
 \section{Congestion Control}
     \subsection{COngestion Control Flag}
-        \subsubsection{\mintinline{C}{sysctl_tcp_recovery}}
+        \subsubsection{\mintinline{c}{sysctl_tcp_recovery}}
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 int sysctl_tcp_recovery __read_mostly = TCP_RACK_LOST_RETRANS;
 \end{minted}
 
     \subsection{Congestion Control Window}
-        \subsubsection{\mintinline{C}{tcp_init_cwnd_reduction}}
+        \subsubsection{\mintinline{c}{tcp_init_cwnd_reduction}}
             \label{CongestionControlWindow:tcp_init_cwnd_reduction}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 
 Location
 
@@ -2326,9 +2326,9 @@ static void tcp_init_cwnd_reduction(struct sock *sk)
                 \item[1]        \ref{CongestionState:CWR}的tcp\_enter\_cwr中调用。
             \end{enumerate}
 
-        \subsubsection{\mintinline{C}{tcp_end_cwnd_reduction}}
+        \subsubsection{\mintinline{c}{tcp_end_cwnd_reduction}}
             \label{CongestionControlWindow:tcp_end_cwnd_reduction}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -2365,9 +2365,9 @@ static inline void tcp_end_cwnd_reduction(struct sock *sk)
             \end{enumerate}
 
     \subsection{Congestion Control Window Undo}
-        \subsubsection{\mintinline{C}{tcp_init_undo}}
+        \subsubsection{\mintinline{c}{tcp_init_undo}}
             \label{CongestionControlWindowUndo:tcp_init_undo}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location
 
@@ -2398,7 +2398,7 @@ static inline void tcp_init_undo(struct tcp_sock *tp)
             \end{enumerate}
         \subsubsection{\mintinline{c}{tcp_may_undo}}
             \label{CongestionControlWindowUndo:tcp_may_undo}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -2421,9 +2421,9 @@ static inline bool tcp_may_undo(const struct tcp_sock *tp)
     return tp->undo_marker && (!tp->undo_retrans || tcp_packet_delayed(tp));
 }
 \end{minted}
-        \subsubsection{\mintinline{C}{tcp_undo_cwnd_reduction}}
+        \subsubsection{\mintinline{c}{tcp_undo_cwnd_reduction}}
             \label{CongestionControlWindowUndo:tcp_undo_cwnd_reduction}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -2474,9 +2474,9 @@ static void tcp_undo_cwnd_reduction(struct sock *sk, bool unmark_loss)
     tp->undo_marker = 0;
 }
 \end{minted}
-        \subsubsection{\mintinline{C}{tcp_try_undo_partial}}
+        \subsubsection{\mintinline{c}{tcp_try_undo_partial}}
             \label{CongestionControlWindowUndo:tcp_try_undo_partial}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -2536,7 +2536,7 @@ static bool tcp_try_undo_partial(struct sock *sk, const int acked,
 
         \subsubsection{\mintinline{c}{tcp_try_undo_recovery}}
             \label{CongestionControlWindowUndo:tcp_try_undo_recovery}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -2591,8 +2591,8 @@ static bool tcp_try_undo_recovery(struct sock *sk)
                 \item[1]        \ref{CongestionDeal:tcp_fastretrans_alert}的tcp\_fastretrans\_alert中调用。
             \end{enumerate}
 
-        \subsubsection{\mintinline{C}{tcp_rack_mark_lost}}
-\begin{minted}[linenos]{C}
+        \subsubsection{\mintinline{c}{tcp_rack_mark_lost}}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -2711,8 +2711,8 @@ void tcp_rack_advance(struct tcp_sock *tp,
     tp->rack.advanced = 1;
 }
 \end{minted}
-        \subsubsection{\mintinline{C}{tcp_try_undo_dsack}}
-\begin{minted}[linenos]{C}
+        \subsubsection{\mintinline{c}{tcp_try_undo_dsack}}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -2739,8 +2739,8 @@ static bool tcp_try_undo_dsack(struct sock *sk)
     return false;
 }
 \end{minted}
-        \subsubsection{\mintinline{C}{tcp_process_loss}}
-\begin{minted}[linenos]{C}
+        \subsubsection{\mintinline{c}{tcp_process_loss}}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -2804,8 +2804,8 @@ static void tcp_process_loss(struct sock *sk, int flag, bool is_dupack)
     tcp_xmit_retransmit_queue(sk);
 }
 \end{minted}
-        \subsubsection{\mintinline{C}{tcp_try_undo_partial}}
-\begin{minted}[linenos]{C}
+        \subsubsection{\mintinline{c}{tcp_try_undo_partial}}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -2856,8 +2856,8 @@ static bool tcp_try_undo_partial(struct sock *sk, const int acked,
 }
 \end{minted}
     \subsection{About Restransmit}
-        \subsubsection{\mintinline{C}{ Related Macro}}
-\begin{minted}[linenos]{C}
+        \subsubsection{\mintinline{c}{ Related Macro}}
+\begin{minted}[linenos]{c}
 /*
     include/net/tcp.h
 */
@@ -2866,7 +2866,7 @@ static bool tcp_try_undo_partial(struct sock *sk, const int acked,
 \end{minted}
 
 \section{TCP Finish}
-    \subsection{\mintinline{C}{Time Compute}}
+    \subsection{\mintinline{c}{Time Compute}}
         \subsubsection{\mintinline{c}{tcp_fin_time}}
             计算等待接收FIN的超时时间。超时时间至少为$\frac{7}{2}$倍的rto。
 \begin{minted}[linenos]{c}
@@ -2903,7 +2903,7 @@ static inline int tcp_fin_time(const struct sock *sk)
 \section{TCP Close}
         \subsection{TCP Close Flags}
             这是关于是接收到关闭连接还是说发送了关闭连接的标志。
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location
     include/net/sock.h
@@ -2914,7 +2914,7 @@ Location
 \end{minted}
 
         \subsubsection{TCP State}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*include/net/tcp_state.c*/
 enum {
     TCP_ESTABLISHED = 1,
@@ -2986,10 +2986,10 @@ void tcp_done(struct sock *sk)
                 inet_csk_destroy_sock(sk);
 }
 \end{minted}
-    \subsection{\mintinline{C}{tcp_shutdown}}
+    \subsection{\mintinline{c}{tcp_shutdown}}
 
-        \mintinline{C}{tcp_shutdown}是TCP的shutdown系统调用的传输层接口实现，由套接口层的实现\mintinline{C}{inet_shutdown}调用。
-\begin{minted}[linenos]{C}
+        \mintinline{c}{tcp_shutdown}是TCP的shutdown系统调用的传输层接口实现，由套接口层的实现\mintinline{c}{inet_shutdown}调用。
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -3024,7 +3024,7 @@ void tcp_shutdown(struct sock *sk, int how)
     }
 }
 \end{minted}
-        如果是发送方向的关闭，并且TCP状态为ESTABLISHED、SYN\_SENT、SYN\_RECV或CLOSE\_WAIT时，根据TC状态迁移图和当前的状态设置新的状态，并在需要发送FIN时，调用FIN时，调用\mintinline{C}{tcp_send_fin}时向对方发送FIN。
+        如果是发送方向的关闭，并且TCP状态为ESTABLISHED、SYN\_SENT、SYN\_RECV或CLOSE\_WAIT时，根据TC状态迁移图和当前的状态设置新的状态，并在需要发送FIN时，调用FIN时，调用\mintinline{c}{tcp_send_fin}时向对方发送FIN。
 
         而对于接收方向的关闭，则无需向对方发送FIN，因为可能还需要向对方发送数据。至于接收方向的关闭的实现，在recvmsg系统调用中发现设置了RCV\_SHUTDOWN标志会立即返回。
 

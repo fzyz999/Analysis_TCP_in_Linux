@@ -7,7 +7,7 @@
     \section{sock底层数据结构}  
         \subsection{sock\_common}
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -129,7 +129,7 @@ struct sock_common {
 };
 \end{minted}
         \subsection{sock}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -357,9 +357,9 @@ struct sock {
     void                    (*sk_destruct)(struct sock *sk);
 };
 \end{minted}
-    \subsection{\mintinline{C}{request_sock}}
+    \subsection{\mintinline{c}{request_sock}}
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -661,9 +661,9 @@ struct msghdr {
 %                   Structure about Inet
 %----------------------------------------------------------------------------------------
     \section{inet层相关数据结构}
-        \subsection{\mintinline{C}{ip_options}}
+        \subsection{\mintinline{c}{ip_options}}
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 
 
 /*
@@ -704,13 +704,13 @@ struct ip_options {
     unsigned char   __data[0];
 };
 \end{minted}    
-        \subsection{\mintinline{C}{inet_request_sock}}
+        \subsection{\mintinline{c}{inet_request_sock}}
 
-        该结构位于\mintinline{C}{/include/net/inet_sock.h}中。
+        该结构位于\mintinline{c}{/include/net/inet_sock.h}中。
 
         这个结构的功能呢？
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 struct inet_request_sock {
     struct request_sock req;
 #define ir_loc_addr     req.__req_common.skc_rcv_saddr
@@ -742,13 +742,13 @@ struct inet_request_sock {
     };
 };
 \end{minted}     
-        \subsection{\mintinline{C}{inet_connection_sock_af_ops}}
+        \subsection{\mintinline{c}{inet_connection_sock_af_ops}}
 
-            该结构位于\mintinline{C}{/include/net/inet_connect_sock.h}中,其后面的af表示address of function即函数地址, ops表示operations，即操作。
+            该结构位于\mintinline{c}{/include/net/inet_connect_sock.h}中,其后面的af表示address of function即函数地址, ops表示operations，即操作。
 
-            该结构封装了一组与传输层有关的操作集，包括向网络层发送的接口、传输层的\mintinline{C}{setsockopt}接口等。
+            该结构封装了一组与传输层有关的操作集，包括向网络层发送的接口、传输层的\mintinline{c}{setsockopt}接口等。
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 struct inet_connection_sock_af_ops {
     int     (*queue_xmit)(struct sock *sk, struct sk_buff *skb, struct flowi *fl);
     void        (*send_check)(struct sock *sk, struct sk_buff *skb);
@@ -782,11 +782,11 @@ struct inet_connection_sock_af_ops {
 };
 \end{minted}
 
-        \subsection{\mintinline{C}{inet_connect_sock}}
+        \subsection{\mintinline{c}{inet_connect_sock}}
 
-            该结构位于\mintinline{C}{/include/net/inet_connect_sock.h}中，它是所有面向传输控制块的表示。其在\mintinline{C}{inet_sock}的基础上，增加了有关连接，确认，重传等成员。
+            该结构位于\mintinline{c}{/include/net/inet_connect_sock.h}中，它是所有面向传输控制块的表示。其在\mintinline{c}{inet_sock}的基础上，增加了有关连接，确认，重传等成员。
             
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /** inet_connection_sock - INET connection oriented sock
  *
  * @icsk_accept_queue:     FIFO of established children 
@@ -919,7 +919,7 @@ struct inet_timewait_sock {
 };
 \end{minted}
 
-\subsection{\mintinline{C}{sockaddr & sockaddr_in}}
+\subsection{\mintinline{c}{sockaddr & sockaddr_in}}
 \label{subsec:sockaddr_and_sockaddr_in}
 \mintinline{c}{sockaddr}用于描述一个地址。
 \begin{minted}[linenos]{c}
@@ -996,13 +996,13 @@ struct ip_options_rcu {
 %----------------------------------------------------------------------------------------
     \section{路由相关数据结构}
                 
-        \subsection{\mintinline{C}{dst_entry}}
+        \subsection{\mintinline{c}{dst_entry}}
 
-            该结构位于\mintinline{C}{/include/net/dst.h}中。
+            该结构位于\mintinline{c}{/include/net/dst.h}中。
             
-            最终生成的IP数据报的路由称为目的入口(\mintinline{C}{dst_entry})，目的入口反映了相邻的外部主机在本地主机内部的一种“映象”。它是与协议无关的目的路由缓存相关的数据结构，保护了路由缓存链接在一起的数据结构成员变量、垃圾回收相关的成员变量、邻居项相关的成员、二层缓存头相关的成员、输入/输出函数指针以用于命中路由缓存的数据包进行后续的数据处理等。
+            最终生成的IP数据报的路由称为目的入口(\mintinline{c}{dst_entry})，目的入口反映了相邻的外部主机在本地主机内部的一种“映象”。它是与协议无关的目的路由缓存相关的数据结构，保护了路由缓存链接在一起的数据结构成员变量、垃圾回收相关的成员变量、邻居项相关的成员、二层缓存头相关的成员、输入/输出函数指针以用于命中路由缓存的数据包进行后续的数据处理等。
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* Each dst_entry has reference count and sits in some parent list(s).
  * When it is removed from parent list, it is "freed" (dst_free).
  * After this it enters dead state (dst->obsolete > 0) and if its refcnt
@@ -1090,13 +1090,13 @@ struct dst_entry {
 };
 \end{minted}
 
-        \subsection{\mintinline{C}{rtable}}
+        \subsection{\mintinline{c}{rtable}}
 
-            该结构位于\mintinline{C}{/include/net/route.h}中。
+            该结构位于\mintinline{c}{/include/net/route.h}中。
 
-            这是ipv4路由缓存相关结构体，保护了该路由缓存查找的匹配条件，即\mintinline{C}{struct flowi}类型的变量、目的ip、源ip、下一跳网关地址、路由类型等。当然了，还有最重要的，保护了一个协议无关的\mintinline{C}{dst_entry}变量，能够很好地实现\mintinline{C}{dst_entry}与rtable的转换，而\mintinline{C}{dst_entry}中又包含邻居项相关的信息，实现了路由缓存与邻居子系统的关联。
+            这是ipv4路由缓存相关结构体，保护了该路由缓存查找的匹配条件，即\mintinline{c}{struct flowi}类型的变量、目的ip、源ip、下一跳网关地址、路由类型等。当然了，还有最重要的，保护了一个协议无关的\mintinline{c}{dst_entry}变量，能够很好地实现\mintinline{c}{dst_entry}与rtable的转换，而\mintinline{c}{dst_entry}中又包含邻居项相关的信息，实现了路由缓存与邻居子系统的关联。
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 struct rtable {
     /*存储缓存路由项中独立于协议的信息*/
     struct dst_entry    dst;        
@@ -1125,8 +1125,8 @@ struct rtable {
 
         \subsection{flowi}
 
-            该数据结构位于\mintinline{C}{/include/net/flow.h}中，它是与路由查找相关的数据结构。
-\begin{minted}[linenos]{C}
+            该数据结构位于\mintinline{c}{/include/net/flow.h}中，它是与路由查找相关的数据结构。
+\begin{minted}[linenos]{c}
 struct flowi {
     union {
         struct flowi_common __fl_common;
@@ -1152,7 +1152,7 @@ struct flowi {
         \subsection{tcphdr}
             该数据结构位于/include/uapi/linux/tcp.h中。这一结构正是TCP首部在网络中
 的样貌。
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
     struct tcphdr {
         __be16  source;
         __be16  dest;
@@ -1189,11 +1189,11 @@ struct flowi {
     };
 \end{minted}
 
-        \subsection{\mintinline{C}{tcp_options_received}}
+        \subsection{\mintinline{c}{tcp_options_received}}
 
-        该结构位于\mintinline{C}{/include/linux/tcp.h}中，其主要表述TCP头部的选项字段。
+        该结构位于\mintinline{c}{/include/linux/tcp.h}中，其主要表述TCP头部的选项字段。
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 struct tcp_options_received {
 /*  PAWS/RTTM data  */
     long    ts_recent_stamp;  /* Time we stored ts_recent (for aging)        
@@ -1237,8 +1237,8 @@ struct tcp_options_received {
 };
 \end{minted} 
 
-        \subsection{\mintinline{C}{tcp_sacktag_state}}
-\begin{minted}[linenos]{C}
+        \subsection{\mintinline{c}{tcp_sacktag_state}}
+\begin{minted}[linenos]{c}
 /*
 Location
     
@@ -1256,13 +1256,13 @@ struct tcp_sacktag_state {
     int flag;
 };
 \end{minted}           
-        \subsection{\mintinline{C}{tcp_sock}}
+        \subsection{\mintinline{c}{tcp_sock}}
 
-            该数据结构位于\mintinline{C}{/include/linux/tcp.h}中。
+            该数据结构位于\mintinline{c}{/include/linux/tcp.h}中。
 
-            该数据结构时TCP协议的控制块，它在\mintinline{C}{inet_connection_sock}结构的基础上扩展了\textbf{滑动窗口协议}、\textbf{拥塞控制算法}等一些TCP的专有属性。
+            该数据结构时TCP协议的控制块，它在\mintinline{c}{inet_connection_sock}结构的基础上扩展了\textbf{滑动窗口协议}、\textbf{拥塞控制算法}等一些TCP的专有属性。
             
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 struct tcp_sock {
     /* inet_connection_sock has to be the first member of tcp_sock */
     struct inet_connection_sock inet_conn;
@@ -1564,8 +1564,8 @@ struct tcp_fastopen_request {
         int                             copied; /* queued in tcp_connect() */
 };
 \end{minted}
-        \subsection{\mintinline{C}{tcp_request_sock}}
-\begin{minted}[linenos]{C}
+        \subsection{\mintinline{c}{tcp_request_sock}}
+\begin{minted}[linenos]{c}
 struct tcp_request_sock {
     struct inet_request_sock    req;
     const struct tcp_request_sock_ops *af_specific;
@@ -1581,7 +1581,7 @@ struct tcp_request_sock {
                                                     */
 };
 \end{minted}
-        \subsection{\mintinline{C}{tcp_skb_cb}}
+        \subsection{\mintinline{c}{tcp_skb_cb}}
             \label{sec:tcp_skb_cb}
 
             在\ref{sec:sk_buff}中，我们分析过\mintinline{c}{cb}。该结构是TCP层在SKB区的

@@ -15,7 +15,7 @@
                     \caption{Client:Send SYN}
                     \label{Client:Send SYN}
                 \end{figure}
-        \subsubsection{\mintinline{C}{tcp_v4_connect}}
+        \subsubsection{\mintinline{c}{tcp_v4_connect}}
             \label{Client:tcp_v4_connect}
 
             \mintinline{c}{tcp_v4_connect}的主要作用是进行一系列的判断，初始化传输控制块
@@ -104,7 +104,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 
         对于函数IS\_ERR、PTR\_ERR的具体介绍，请参见\ref{Appendix:ERR}.
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
         /*TCP不能使用类型为组播或多播的路由缓存项*/
         if (rt->rt_flags & (RTCF_MULTICAST | RTCF_BROADCAST)) {
                 ip_rt_put(rt);
@@ -222,7 +222,7 @@ failure:
         return err;
 \end{minted}
 
-        \subsubsection{\mintinline{C}{tcp_connect}}
+        \subsubsection{\mintinline{c}{tcp_connect}}
             \label{Client:tcp_connect}
             上面的\mintinline{c}{tcp_v4_connect}会进行一系列的判断，之后真正构造SYN包的部分
             被放在了\mintinline{c}{tcp_connect}中。接下来，我们来分析这个函数。
@@ -253,7 +253,7 @@ int tcp_connect(struct sock *sk)
 \end{minted}
 
         关于tcp\_connect\_init更多的内容，请参见\ref{TCPInitialize:tcp_connect_init}。
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
         if (unlikely(tp->repair)) {             //what does it mean repair?
                 /* 如果repair位被置1，那么结束TCP连接 */
                 tcp_finish_connect(sk, NULL);
@@ -271,7 +271,7 @@ int tcp_connect(struct sock *sk)
            
         关于tcp\_init\_nondata\_skb更多的内容，请参见\ref{TCPInitialize:tcp_init_nondata_skb}。
 
-\begin{minted}[linenos]{C} 
+\begin{minted}[linenos]{c} 
         /* 设置时间戳 */
         tp->retrans_stamp = tcp_time_stamp;
         /* 将当前的sk_buff添加到发送队列中 */
@@ -679,9 +679,9 @@ reset_and_undo:
 }
 \end{minted}
 
-        \subsubsection{\mintinline{C}{tcp_ack}}
+        \subsubsection{\mintinline{c}{tcp_ack}}
             \label{ClientReceiveSYN+ACK:tcp_ack}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -754,7 +754,7 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 
     关于tcp\_replace\_ts\_recent更多的内容，请参见\ref{TCPTimestamp:tcp_replace_ts_recent}。
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
     /*如果执行的是快速路径并且确认号大于先前的snd_una*/
     if (!(flag & FLAG_SLOWPATH) && after(ack, prior_snd_una)) {
         /* Window is constant, pure forward advance.
@@ -775,7 +775,7 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 
     关于tcp\_snd\_una\_update更多的内容，请参见\ref{ACKUpdate:tcp_snd_una_update}.
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
     } else {
         /*慢速路径*/
         u32 ack_ev_flags = CA_ACK_SLOWPATH;
@@ -790,7 +790,7 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 
     关于tcp\_ack\_update\_window更多的内容，请参考\ref{WindowUpdate:tcp_ack_update_window}.
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
         /*存在SACK选项，标记重传选项*/
         if (TCP_SKB_CB(skb)->sacked)
             flag |= tcp_sacktag_write_queue(sk, skb, prior_snd_una,
@@ -839,7 +839,7 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 
     关于tcp\_ack\_is\_dubious的更多的内容，请参见\ref{ACKCheck:tcp_ack_is_dubious}.
     关于tcp\_fastretrans\_alert的更多内容，请参见\ref{CongestionDeal:tcp_fastretrans_alert}.
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
     if (tp->tlp_high_seq)
         tcp_process_tlp_ack(sk, ack, flag);
 
@@ -862,7 +862,7 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 \end{minted}
 
     接下来，源代码中已经有一定的注释，就不再分析了。
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 no_queue:
     /* If data was DSACKed, see if we can undo a cwnd reduction. */
     if (flag & FLAG_DSACKING_ACK)

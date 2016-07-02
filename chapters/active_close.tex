@@ -1,4 +1,4 @@
-\section{\mintinline{C}{tcp_shutdown}}
+\section{tcp\_shutdown}
 			\label{ClientSendFin:tcp_shutdown}
 			通过shutdown系统调用，主动关闭TCP连接。该系统调用最终由\mintinline{c}{tcp_shutdown}实现。
 \begin{minted}[linenos]{c}
@@ -49,13 +49,13 @@ void tcp_shutdown(struct sock *sk, int how)
 	\subsection{第一次握手:发送FIN}
 		\subsubsection{基本调用关系}
 		
-		\subsubsection{\mintinline{C}{tcp_close}}
+		\subsubsection{\mintinline{c}{tcp_close}}
 			当一段完成数据发送任务之后，应用层即可调用close发送一个FIN来
 			终止该方向上的连接，当另一端收到这个FIN后，必须通知应用层，
 			另一端已经终止了数据传送。
 
 			而close系统调用在传输层接收的实现就是tcp\_close,这里我们依次分析。
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -95,7 +95,7 @@ void tcp_close(struct sock *sk, long timeout)
         如果套接口处于侦听状态，这种情况处理相对比较简单，因为没有建立起连接，因此无需发送FIN等操作。
 		设置TCP的状态为CLOSE，然后终止侦听。最后跳转到adjudge\_to\_death处进行相关处理。
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
     /*  We need to flush the recv. buffs.  We do this only on the
      *  descriptor close(什么意思), not protocol-sourced(什么意思) closes, because the
      *  reader process may not have drained(消耗) the data yet!
@@ -114,7 +114,7 @@ void tcp_close(struct sock *sk, long timeout)
 
         因为要关闭连接，故需要释放已接收队列上的段，同时统计释放了多少数据，然后回收缓存。
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
     /* If socket has been already reset (e.g. in tcp_reset()) - kill it. */
     if (sk->sk_state == TCP_CLOSE)
         goto adjudge_to_death;
@@ -122,7 +122,7 @@ void tcp_close(struct sock *sk, long timeout)
 
         如果socket本身就是close状态的话，直接跳到adjudge\_to\_death就好。
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
     /* As outlined in RFC 2525, section 2.17, we send a RST here because
      * data was lost. To witness the awful effects of the old behavior of
      * always doing a FIN, run an older 2.1.x kernel or 2.0.x, start a bulk
@@ -190,7 +190,7 @@ void tcp_close(struct sock *sk, long timeout)
 \end{minted}
 
 	在给对端发送RST或FIN段后，等待套接口的关闭，直到TCP的状态为FIN\_WAIT\_1、CLOSING、LAST\_ACK或等待超时。
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 adjudge_to_death:
 	/*
 		置套接口为DEAD状态，成为孤儿套接口，同时更新系统中的孤儿套接口数。
@@ -217,7 +217,7 @@ adjudge_to_death:
 \end{minted}
 
 	接下来处理FIN\_WAIT2到CLOSE状态的转换。
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
     /*  This is a (useful) BSD violating of the RFC. There is a
      *  problem with TCP as specified in that the other end could
      *  keep a socket open forever with no application left this end.
@@ -262,7 +262,7 @@ adjudge_to_death:
 \end{minted}
 
 	继续处理。
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 	/*不是CLOSE状态*/    
 	if (sk->sk_state != TCP_CLOSE) {
         sk_mem_reclaim(sk);
@@ -296,8 +296,8 @@ out:
 	该函数会根据当前的状态，按照\ref{subsubsec:tcp_state_diagram}中给出的状态图。
 
 
-		\subsubsection{\mintinline{C}{tcp_close_state}}
-\begin{minted}[linenos]{C}
+		\subsubsection{\mintinline{c}{tcp_close_state}}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -325,7 +325,7 @@ static int tcp_close_state(struct sock *sk)
 }
 \end{minted}
 
-		\subsubsection{\mintinline{C}{tcp_send_fin}}
+		\subsubsection{\mintinline{c}{tcp_send_fin}}
 
 \begin{minted}[linenos]{c}
 /* 
@@ -397,7 +397,7 @@ coalesce:
 		
 		我们知道内核中接收数据都是从tcp\_v4\_do\_rcv函数开始，简单分析就知道会继续调用
 		tcp\_rcv\_state\_process函数，我们就直接从这里开始了。
-		\subsubsection{\mintinline{C}{tcp_rcv_state_process}}
+		\subsubsection{\mintinline{c}{tcp_rcv_state_process}}
 			\label{ClientReceiveACK:tcp_rcv_state_process}
 \begin{minted}[linenos]{c}
 int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
@@ -573,7 +573,7 @@ discard:
 	取代正常的TCP传输控制块。\mintinline{text}{TIME_WAIT}也是可作同样处理。
 	该替换过程通过函数\mintinline{c}{tcp_time_wait}完成。
 
-		\subsubsection{\mintinline{C}{tcp_time_wait}}
+		\subsubsection{\mintinline{c}{tcp_time_wait}}
 \begin{minted}[linenos]{c}
 /*
 Location:

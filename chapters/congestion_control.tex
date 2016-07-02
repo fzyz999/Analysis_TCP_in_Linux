@@ -11,7 +11,7 @@
             \end{figure} 
     
         定义如下:
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 enum tcp_ca_state {
     TCP_CA_Open = 0,
 #define TCPF_CA_Open    (1<<TCP_CA_Open)
@@ -35,7 +35,7 @@ enum tcp_ca_state {
             \label{CongestionState:CWR}
             TCP发送方可能从显式拥塞通知、ICMP源端抑制(ICMP source quench)或是本地设备接收到拥塞通知。当收到一个拥塞通知时，发送方并不立刻减小拥塞窗口，而是每隔一个新到的ACK减小一个段直到窗口的大小减半为止。发送方在减小拥塞窗口大小的过程中不会有明显的重传，这就处于CWR(Congestion Window Reduced,拥塞窗口减小)状态。CWR状态可以被Revcovery状态或者Loss状态中断。进入拥塞窗口减小的函数如下：
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -85,9 +85,9 @@ void tcp_enter_cwr(struct sock *sk)
             当接收到的ACK的确认已经被之前的SACK确认过，这意味着我们记录的SACK信息不能反映接收方的实际状态，
             此时，也会进入Loss状态。
 
-            调用\mintinline{C}{tcp_enter_loss}进入Loss状态，如下：
+            调用\mintinline{c}{tcp_enter_loss}进入Loss状态，如下：
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -136,7 +136,7 @@ void tcp_enter_loss(struct sock *sk)
 
     关于tcp\_init\_undo更多内容,请参见\ref{CongestionControlWindowUndo:tcp_init_undo}.
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
     /*拥塞窗口大小设置为1*/
     tp->snd_cwnd       = 1;
     /*snd_cwnd_cnt表示自从上次调整拥塞窗口到
@@ -160,7 +160,7 @@ void tcp_enter_loss(struct sock *sk)
     关于tcp\_is\_reno更多的内容，请参见\ref{ACKCheck:IsSACK,IsReno,IsFack};
     关于tcp\_reset\_reno\_sack更多的内容，请参见\ref{ACKUpdate:tcp_reset_reno_sack}.
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
     skb = tcp_write_queue_head(sk);
     /*判断接受者是否认为SACK违约*/
     is_reneg = skb && (TCP_SKB_CB(skb)->sacked & TCPCB_SACKED_ACKED);
@@ -172,7 +172,7 @@ void tcp_enter_loss(struct sock *sk)
 \end{minted}
 
     关于违约的讲解的更多内容，请参见\ref{TCPFlag}.
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
     /*清除有关重传的记忆变量*/
     tcp_clear_all_retrans_hints(tp);
 
@@ -198,7 +198,7 @@ void tcp_enter_loss(struct sock *sk)
 
     关于tcp\_verify\_left\_out更多的内容，请参见\ref{WindowCompute:tcp_verify_left_out}。
     
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
     /* Timeout in disordered state after receiving substantial DUPACKs
      * suggests that the degree of reordering is over-estimated.
      */
@@ -245,7 +245,7 @@ void tcp_enter_loss(struct sock *sk)
             剩下的两位。
 
             基本的定义如下：
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 enum {
     INET_ECN_NOT_ECT = 0,   //TOS后两位为00：表示不支持ECN
     INET_ECN_ECT_1 = 1,     //TOS后两位为01：表示支持ECN
@@ -259,7 +259,7 @@ enum {
             当路由器检测到拥塞的时候，设置ECN域为11。当然在设置之前会检测之前是否出现了
             拥塞。没有的时候再进行设置。
 
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /*
 Location:
 
@@ -318,7 +318,7 @@ static inline int IP_ECN_set_ce(struct iphdr *iph)
             的TCP端来说，SYN段的ECE和CWR标志都被设置了，SYN的ACK只设置ECE标志。
 
             相关宏定义如下:
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 本端支持ECN */  
 #define TCP_ECN_OK          1
 /* 本端被通知了拥塞，此时作为发送方*/
@@ -342,9 +342,9 @@ static inline int IP_ECN_set_ce(struct iphdr *iph)
         在\label{ClientReceiveSYN+ACK:tcp_ack}章，客户端在第二次连接的时候会调用tcp\_ack
         我们对其分析后，发现其中会调用tcp\_fastretrans\_alert拥塞控制状态处理函数，这里我
         们就主要讲解这一函数。
-        \subsubsection{拥塞控制状态处理:\mintinline{C}{tcp_fastretrans_alert}}
+        \subsubsection{拥塞控制状态处理:\mintinline{c}{tcp_fastretrans_alert}}
             \label{CongestionDeal:tcp_fastretrans_alert}
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 /* 
 Location:
 
@@ -396,7 +396,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 \end{minted}
 
         接下来，拥塞状态处理机启动。
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
     /*  Now state machine starts.
         A. ECE, hence prohibit(阻止) cwnd undoing, the reduction is required. 
         由于接收到显式拥塞通知，因此禁止窗口撤销，并且开始减小拥塞窗口。
@@ -410,7 +410,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
     因为按照正常的逻辑流程，接受的ACK不应该指向已记录的SACK，而应指向SACK并未包含的，这说明接收方由于拥塞已经把
     SACK部分接收的段已经丢弃或者处理上有BUG，我们必须需要重传了。
     
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
     /* B. In all the states check for reneging SACKs. */
     if (tcp_check_sack_reneging(sk, flag))
         return;
@@ -418,7 +418,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
     
     关于tcp\_check\_sack\_reneging更多的内容，请参见\ref{TCPACKCheck:tcp_check_sack_reneging}。
     
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
     /* C. Check consistency of the current state. */
     tcp_verify_left_out(tp);
 \end{minted}
@@ -428,7 +428,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
     关于tcp\_verify\_left\_out的更多的内容，请参见\ref{WindowCompute:tcp_verify_left_out}.
     
     接下来检测从拥塞状态返回的条件，当high\_seq被确认时，结束拥塞状态，进入Open状态。
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
     /* D. Check state exit conditions. State can be terminated
      *    when high_seq is ACKed. */
     if (icsk->icsk_ca_state == TCP_CA_Open) {
@@ -456,7 +456,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 \end{minted}
 
     关于tcp\_end\_cwnd\_reduction的更多内容，请参见\ref{CongestionControlWindow:tcp_end_cwnd_reduction}.
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
             case TCP_CA_Recovery:
                 //判断对方是否提供了SACK服务，提供，返回0,否则返回1
                 if (tcp_is_reno(tp))
@@ -477,7 +477,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
     关于tcp\_try\_undo\_recovery的更多内容，请参见\ref{CongestionControlWindowUndo:tcp_try_undo_recovery}   ;
     关于tcp\_end\_cwnd\_reduction的更多内容，请参见\ref{CongestionControlWindow:tcp_end_cwnd_reduction}.
     
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
 
     /* Use RACK (Restransmit Ack????)to detect loss 
         有时间好好分析。    
@@ -512,7 +512,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
     关于tcp\_add\_reno\_sack的更多内容，请参见\ref{ACKUpdate:tcp_add_reno_sack};
     关于tcp\_try\_undo\_partial的更多的内容，请参见\ref{CongestionControlWindowUndo:tcp_try_undo_partial};
     
-\begin{minted}[linenos]{C}
+\begin{minted}[linenos]{c}
         case TCP_CA_Loss:
             tcp_process_loss(sk, flag, is_dupack);
             if (icsk->icsk_ca_state != TCP_CA_Open &&

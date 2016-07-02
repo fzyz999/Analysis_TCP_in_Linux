@@ -4,7 +4,6 @@ before_install:
 - wget https://github.com/scottkosty/install-tl-ubuntu/raw/master/install-tl-ubuntu && chmod +x ./install-tl-ubuntu
 - sudo ./install-tl-ubuntu
 - export PATH="/opt/texbin:$PATH"
-- sudo ls /opt/texbin
 - tex -v
 - sudo mkdir -p /usr/share/fonts/opentype/
 - sudo mv ./fonts/AdobeFangsongStd-Regular.otf /usr/share/fonts/opentype/
