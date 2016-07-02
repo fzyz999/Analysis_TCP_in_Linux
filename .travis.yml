@@ -24,4 +24,4 @@ after_script:
 - git config user.name "Travis Ci bot"
 - git config user.email "travis-ci@not.exist.email.address"
 - git commit -m "[travis-ci] auto generate tex.pdf" 
-- git push --force --quiet "https://${GH_TOKEN}@github.com/fzyz999/Analysis_TCP_in_Linux" master:master
+- git push --force "https://${GH_TOKEN}@github.com/fzyz999/Analysis_TCP_in_Linux" master:master
