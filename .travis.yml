@@ -16,9 +16,10 @@ before_install:
 - cd ..
 - sudo apt-get install python-pygments
 script:
+- cd Analysis_TCP_in_Linux/
 - make
 after_script:
-- '["${TRAVIS_PULL_REQUEST}" != "false"] && exit 0'
+- '[ "${TRAVIS_PULL_REQUEST}" != "false" ] && exit 0'
 - make clean
 - git add tcp.pdf
 - git commit -m "[travis-ci] auto generate tex.pdf" 
