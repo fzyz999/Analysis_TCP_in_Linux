@@ -1,0 +1,24 @@
+sudo: required
+dist: trusty
+before_install:
+- sudo apt-get update
+- sudo apt-get -y install texlive-full
+- sudo tex -v
+- sudo mkdir -p /usr/share/fonts/opentype/
+- sudo mv ./fonts/AdobeFangsongStd-Regular.otf /usr/share/fonts/opentype/
+- sudo mv ./fonts/AdobeHeitiStd-Regular\ \(v5.010\).otf /usr/share/fonts/opentype/
+- sudo mv ./fonts/AdobeKaitiStd-Regular\ \(v5.010\).otf /usr/share/fonts/opentype/
+- sudo mv ./fonts/AdobeSongStd-Light\ \(v5.010\).otf /usr/share/fonts/opentype/
+- sudo mkfontscale
+- sudo mkfontdir
+- sudo fc-cache -fv
+- fc-list :lang=zh
+- cd ..
+- sudo apt-get install python-pygments
+script:
+- make
+after_script:
+- ["${TRAVIS_PULL_REQUEST}" != "false"] && exit 0
+- make clean
+- git add tcp.pdf
+- git commit -m "[travis-ci] auto generate tex.pdf" && git push --force --quiet "https://${GH_TOKEN}@github.com/fzyz999/Analysis_TCP_in_Linux" master:master
