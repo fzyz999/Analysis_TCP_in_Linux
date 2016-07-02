@@ -5,7 +5,7 @@ before_install:
 - sudo ./install-tl-ubuntu
 - export PATH="/opt/texbin:$PATH"
 - sudo ls /opt/texbin
-- sudo tex -v
+- tex -v
 - sudo mkdir -p /usr/share/fonts/opentype/
 - sudo mv ./fonts/AdobeFangsongStd-Regular.otf /usr/share/fonts/opentype/
 - sudo mv ./fonts/AdobeHeitiStd-Regular\ \(v5.010\).otf /usr/share/fonts/opentype/
@@ -15,16 +15,8 @@ before_install:
 - sudo mkfontdir
 - sudo fc-cache -fv
 - fc-list :lang=zh
-- sudo wget http://mirrors.ctan.org/macros/latex/contrib/minted.zip
-- sudo unzip minted.zip
-- cd minted/
-- sudo make
-- sudo mv minted.sty /usr/share/texlive/texmf-dist/tex/latex/minted
-- sudo mv minted1.sty /usr/share/texlive/texmf-dist/tex/latex/minted
-- cd ..
 - sudo apt-get install python-pygments
 script:
-- cd Analysis_TCP_in_Linux/
 - make
 after_script:
 - '[ "${TRAVIS_PULL_REQUEST}" != "false" ] && exit 0'
