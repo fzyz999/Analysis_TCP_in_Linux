@@ -1,5 +1,9 @@
 # Linux 4.4.0内核源码分析——TCP实现 #
 
+<p>
+<a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="知识共享许可协议" style="border-width:0" src="https://i.creativecommons.org/l/by-sa/4.0/88x31.png" /></a><br />本作品采用<a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">知识共享署名-相同方式共享 4.0 国际许可协议</a>进行许可。
+</p>
+
 ## Overview ##
 TCP协议是目前网络协议栈中最重要的内容之一。出于个人兴趣，我们希望能够了解
 关于TCP实现的相关知识。然而，目前网络上已存在的相关分析文章较为零散，难以
