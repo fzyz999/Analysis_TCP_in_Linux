@@ -1,8 +1,11 @@
 sudo: required
 dist: trusty
 before_install:
-- sudo apt-get update
-- sudo apt-get -y install texlive-full
+- sudo wget http://mirror.ctan.org/systems/texlive/tlnet/install-tl-unx.tar.gz
+- tar -xzf install-tl-unx.tar.gz
+- cd install-tl-20160630
+- sudo chmod +x ./install-tl
+- sudo ./install-tl
 - sudo tex -v
 - sudo mkdir -p /usr/share/fonts/opentype/
 - sudo mv ./fonts/AdobeFangsongStd-Regular.otf /usr/share/fonts/opentype/
