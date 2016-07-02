@@ -13,6 +13,12 @@ before_install:
 - sudo mkfontdir
 - sudo fc-cache -fv
 - fc-list :lang=zh
+- sudo wget http://mirrors.ctan.org/macros/latex/contrib/minted.zip
+- sudo unzip minted.zip
+- cd minted/
+- sudo make
+- sudo mv minted.sty /usr/share/texlive/texmf-dist/tex/latex/minted
+- sudo mv minted1.sty /usr/share/texlive/texmf-dist/tex/latex/minted
 - cd ..
 - sudo apt-get install python-pygments
 script:
