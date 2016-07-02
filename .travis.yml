@@ -21,5 +21,7 @@ after_script:
 - '[ "${TRAVIS_PULL_REQUEST}" != "false" ] && exit 0'
 - make clean
 - git add tcp.pdf
+- git config user.name "Travis Ci bot"
+- git config user.email "travis-ci@not.exist.email.address"
 - git commit -m "[travis-ci] auto generate tex.pdf" 
 - git push --force --quiet "https://${GH_TOKEN}@github.com/fzyz999/Analysis_TCP_in_Linux" master:master
