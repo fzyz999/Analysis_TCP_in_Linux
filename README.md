@@ -54,7 +54,7 @@ Makefile				构建脚本
 + pygments
 
 本文的代码高亮采用了minted宏包，该宏包依赖pygments进行代码高亮，因此，编译
-该文档依赖pygements。
+该文档依赖pygments。
 
 
 ## 如何生成文档 ##
