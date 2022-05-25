@@ -26,7 +26,7 @@ enum tcp_ca_state {
 };
 \end{minted}
         \subsubsection{Open状态}
-            Open状态是常态，在这种状态下TCP发送方通过优化后的快速路径来处理接收ACK。当一个确认到达时，发送方根据拥塞窗口是小于还是大于慢启动阙值，按慢启动或者拥塞避免来增大拥塞窗口。
+            Open状态是常态，在这种状态下TCP发送方通过优化后的快速路径来处理接收ACK。当一个确认到达时，发送方根据拥塞窗口是小于还是大于慢启动阈值，按慢启动或者拥塞避免来增大拥塞窗口。
 
         \subsubsection{Disorder状态}
             当发送方检测到DACK(重复确认)或者SACK(选择性确认)时，将转变为Disorder(无序)状态。在该状态下，拥塞窗口不做调整，而是每个新到的段触发一个新的数据段的发送。因此，TCP发送方遵循包守恒原则，该原则规定一个新包只有在一个老的包离开网络后才发送。在实践中，该规定的表现类似于IETF的传输提议，允许当拥塞窗口较小或是上个传输窗口中有大量数据段丢失时，使用快速重传以更有效地恢复。
@@ -53,7 +53,7 @@ void tcp_enter_cwr(struct sock *sk)
 {
     struct tcp_sock *tp = tcp_sk(sk);
     /*进入CWR后就不需要窗口撤消了，
-      因此需要清除拥塞控制的慢启动阙值
+      因此需要清除拥塞控制的慢启动阈值
     */
     tp->prior_ssthresh = 0;
     /*可以看出只有Open状态和Disorder状态可以转移到该状态*/
@@ -115,9 +115,9 @@ void tcp_enter_loss(struct sock *sk)
     if (icsk->icsk_ca_state <= TCP_CA_Disorder ||
         !after(tp->high_seq, tp->snd_una) ||
         (icsk->icsk_ca_state == TCP_CA_Loss && !icsk->icsk_retransmits)) {
-        /*保留当前的阙值*/      
+        /*保留当前的阈值*/      
         tp->prior_ssthresh = tcp_current_ssthresh(sk);
-        /*计算新的阙值*/        
+        /*计算新的阈值*/        
         tp->snd_ssthresh = icsk->icsk_ca_ops->ssthresh(sk);
         /*发送CA_EVENT_LOSS拥塞事件给具体拥塞算法模块*/     
         tcp_ca_event(sk, CA_EVENT_LOSS);
