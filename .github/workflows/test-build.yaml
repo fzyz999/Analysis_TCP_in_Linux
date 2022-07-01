@@ -1,0 +1,28 @@
+name: rebuild pdf
+on: [push]
+jobs:
+  Rebuild-PDF:
+    runs-on: ubuntu-latest
+      steps:
+      - wget https://github.com/scottkosty/install-tl-ubuntu/raw/master/install-tl-ubuntu && chmod +x ./install-tl-ubuntu
+      - sudo ./install-tl-ubuntu
+      - export PATH="/opt/texbin:$PATH"
+      - tex -v
+      - sudo mkdir -p /usr/share/fonts/opentype/
+      - sudo mv ./fonts/AdobeFangsongStd-Regular.otf /usr/share/fonts/opentype/
+      - sudo mv ./fonts/AdobeHeitiStd-Regular\ \(v5.010\).otf /usr/share/fonts/opentype/
+      - sudo mv ./fonts/AdobeKaitiStd-Regular\ \(v5.010\).otf /usr/share/fonts/opentype/
+      - sudo mv ./fonts/AdobeSongStd-Light\ \(v5.010\).otf /usr/share/fonts/opentype/
+      - sudo mkfontscale
+      - sudo mkfontdir
+      - sudo fc-cache -fv
+      - fc-list :lang=zh
+      - sudo apt-get install python-pygments
+      - make
+      - make clean
+      - git checkout master
+      - git add tcp.pdf
+      - git config user.name "Github Actions bot"
+      - git config user.email "github-actions-bot@not.exist.email.address"
+      - git commit -m "[ci skip] auto generate tex.pdf" 
+      - git push --force "https://${{secrets.GH_TOKEN}}@github.com/fzyz999/Analysis_TCP_in_Linux" master:master
