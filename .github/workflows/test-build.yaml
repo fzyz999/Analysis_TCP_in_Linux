@@ -4,7 +4,6 @@ jobs:
   Rebuild-PDF:
     runs-on: ubuntu-latest
     steps:
-      - name: Prepare Environment
       - run: wget https://github.com/scottkosty/install-tl-ubuntu/raw/master/install-tl-ubuntu && chmod +x ./install-tl-ubuntu
       - run: sudo ./install-tl-ubuntu
       - run: export PATH="/opt/texbin:$PATH"
@@ -19,9 +18,7 @@ jobs:
       - run: sudo fc-cache -fv
       - run: fc-list :lang=zh
       - run: sudo apt-get install python-pygments
-      - name: Build
       - run: make
-      - name: Submit new PDF
       - run: make clean
       - run: git checkout master
       - run: git add tcp.pdf
