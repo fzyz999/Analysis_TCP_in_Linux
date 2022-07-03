@@ -7,7 +7,7 @@ jobs:
       # - run: wget https://github.com/scottkosty/install-tl-ubuntu/raw/master/install-tl-ubuntu && chmod +x ./install-tl-ubuntu
       # - run: sudo ./install-tl-ubuntu
       # - run: export PATH="/opt/texbin:$PATH"
-      - run: sudo apt install textlive-full
+      - run: sudo apt install texlive-full
       - run: tex -v
       - run: sudo mkdir -p /usr/share/fonts/opentype/
       - run: sudo mv ./fonts/AdobeFangsongStd-Regular.otf /usr/share/fonts/opentype/
