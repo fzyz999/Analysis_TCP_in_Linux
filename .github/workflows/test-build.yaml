@@ -10,20 +10,24 @@ jobs:
       - run: sudo apt install texlive-full
       - run: tex -v
       - run: sudo mkdir -p /usr/share/fonts/opentype/
-      - run: sudo mv ./fonts/AdobeFangsongStd-Regular.otf /usr/share/fonts/opentype/
-      - run: sudo mv ./fonts/AdobeHeitiStd-Regular\ \(v5.010\).otf /usr/share/fonts/opentype/
-      - run: sudo mv ./fonts/AdobeKaitiStd-Regular\ \(v5.010\).otf /usr/share/fonts/opentype/
-      - run: sudo mv ./fonts/AdobeSongStd-Light\ \(v5.010\).otf /usr/share/fonts/opentype/
-      - run: sudo mkfontscale
-      - run: sudo mkfontdir
-      - run: sudo fc-cache -fv
-      - run: fc-list :lang=zh
-      - run: sudo apt-get install python-pygments
-      - run: make
-      - run: make clean
-      - run: git checkout master
-      - run: git add tcp.pdf
-      - run: git config user.name "Github Actions bot"
-      - run: git config user.email "github-actions-bot@not.exist.email.address"
-      - run: git commit -m "[ci skip] auto generate tex.pdf" 
-      - run: git push --force "https://${{secrets.GH_TOKEN}}@github.com/fzyz999/Analysis_TCP_in_Linux" master:master
+      - uses: actions/checkout@v3
+        with:
+          token: '${{secrets.GH_TOKEN}}'
+      - run: |
+          sudo mv ./fonts/AdobeFangsongStd-Regular.otf /usr/share/fonts/opentype/
+          sudo mv ./fonts/AdobeHeitiStd-Regular\ \(v5.010\).otf /usr/share/fonts/opentype/
+          sudo mv ./fonts/AdobeKaitiStd-Regular\ \(v5.010\).otf /usr/share/fonts/opentype/
+          sudo mv ./fonts/AdobeSongStd-Light\ \(v5.010\).otf /usr/share/fonts/opentype/
+          sudo mkfontscale
+          sudo mkfontdir
+          sudo fc-cache -fv
+          fc-list :lang=zh
+          sudo apt-get install python-pygments
+          make
+          make clean
+          git checkout master
+          git add tcp.pdf
+          git config user.name "Github Actions bot"
+          git config user.email "github-actions-bot@not.exist.email.address"
+          git commit -m "[ci skip] auto generate tex.pdf" 
+          git push --force "https://${{secrets.GH_TOKEN}}@github.com/fzyz999/Analysis_TCP_in_Linux" master:master
