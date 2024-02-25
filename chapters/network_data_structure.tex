@@ -401,6 +401,13 @@ struct request_sock {
 
 该结构体的定义较长，需要一点一点分析。结构体的开头为
 \begin{minted}[linenos]{c}
+/*
+Location:
+
+    include/linux/skbuff.h
+
+*/
+struct sk_buff {
   union {
     struct {
       /* These two members must be first. */
@@ -668,6 +675,8 @@ struct msghdr {
 
 /*
 Location:
+
+    include/net/inet_sock.h
 
 Description:
     @faddr - Saved first hop address

@@ -206,7 +206,7 @@ adjudge_to_death:
        to finish close. No need to check for user refs.
      */
     local_bh_disable();
-    .(sk);
+    bh_lock_sock(sk);
     WARN_ON(sock_owned_by_user(sk));
 
     percpu_counter_inc(sk->sk_prot->orphan_count);
